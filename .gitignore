@@ -1,0 +1,18 @@
+/target
+**/*.rs.bk
+Cargo.lock.orig
+.DS_Store
+# Local secrets / runtime state — NEVER commit
+.keys/
+*.sock
+/data/
+/run/
+# Model artifacts and corpora are huge and licensed; they never live in git.
+*.gguf
+*.onnx
+*.safetensors
+/weights/
+/corpus/
+# TLC model-checking scratch output
+formal/states/
+formal/*.toolbox/

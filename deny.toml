@@ -1,0 +1,38 @@
+# cargo-deny config for nat. Mirrors the citrate-compute-pool / citrate-comms
+# supply-chain posture: `cargo audit` BLOCKS a stable release (no soft-fail);
+# accepted advisories are explicit, reviewed `[advisories] ignore` entries here,
+# each citing a REM tracker — never a continue-on-error CI step.
+#
+# This file is the audit trail. Adding a license or accepting an advisory is a
+# PR that edits this file, forcing a reviewer to confirm it is safe.
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = [
+    # (none yet — add a RUSTSEC id + a one-line justification + REM tracker when
+    #  an advisory is reviewed and accepted.)
+]
+
+[licenses]
+version = 2
+confidence-threshold = 0.8
+# Smallest set that permits the current dependency graph. Adding a license is a
+# reviewed PR. BUSL-1.1 is the Licensed Work's own license (see LICENSE).
+allow = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

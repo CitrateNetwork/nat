@@ -1,0 +1,7 @@
+# Pin the toolchain for reproducible builds — a specific version (not "stable")
+# so two machines, and a federated node, resolve the SAME compiler. The
+# reproducibility floor (PLANSET/01 §reproducibility) starts here: same raw +
+# same config + same compiler -> same shards and same merge.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]

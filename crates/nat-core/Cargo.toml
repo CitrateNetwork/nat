@@ -1,0 +1,25 @@
+[package]
+name = "nat-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The NAT forward pass: zones, cores (SSM/attention), router, async gather, deterministic merge, and the trace-emitting model."
+
+[dependencies]
+nat-types.workspace = true
+nat-provenance.workspace = true
+nat-mcp.workspace = true
+nat-sidecar.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+# The Gate-2 acceptance suite (tests/gate2_*.rs) drives the harness and inspects
+# the trace directly, so it needs the sibling crates by name.
+nat-provenance.workspace = true
+nat-mcp.workspace = true
+nat-sidecar.workspace = true
+nat-types.workspace = true

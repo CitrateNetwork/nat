@@ -1,0 +1,13 @@
+[package]
+name = "nat-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The non-learned MCP executive harness: an explicit state machine that gates tool use. The cleanest TLA+ target in NAT."
+
+[dependencies]
+nat-types.workspace = true
+serde.workspace = true

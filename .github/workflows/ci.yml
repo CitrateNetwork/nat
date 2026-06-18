@@ -1,0 +1,36 @@
+# CI for nat. Mirrors the citrate-comms / citrate-compute-pool posture:
+# fmt + clippy (warnings deny) + test on the pinned toolchain, plus a
+# supply-chain gate (cargo-deny). The Gate-2 acceptance tests run as part of
+# `cargo test` (they mirror features/gate2_*.feature).
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (pinned via rust-toolchain.toml)
+        run: rustup show
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test (includes Gate-2 acceptance suite)
+        run: cargo test --workspace
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: cargo-deny
+        uses: EmbarkStudios/cargo-deny-action@v1
+        with:
+          command: check advisories bans licenses sources
