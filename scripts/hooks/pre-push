@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Local guard: block a direct push to main, since server-side branch protection
+# is unavailable on the org's current plan (see docs/BRANCH_PROTECTION.md).
+#
+# This is a guardrail, not enforcement — anyone can bypass it, and it only runs
+# for whoever installed it. Install with: scripts/install-hooks.sh
+#
+# Override for an intentional direct push (e.g. the owner doing a hotfix):
+#   NAT_ALLOW_MAIN_PUSH=1 git push origin main
+set -euo pipefail
+
+protected="refs/heads/main"
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  if [[ "$remote_ref" == "$protected" ]]; then
+    if [[ "${NAT_ALLOW_MAIN_PUSH:-0}" == "1" ]]; then
+      echo "nat pre-push: direct push to main allowed (NAT_ALLOW_MAIN_PUSH=1)." >&2
+      exit 0
+    fi
+    echo "" >&2
+    echo "  ✗ nat pre-push guard: direct push to 'main' is discouraged." >&2
+    echo "    main has no server-side protection yet (org plan limit), so this" >&2
+    echo "    hook stands in for it. Prefer a PR:" >&2
+    echo "" >&2
+    echo "      git switch -c <branch> && git push -u origin <branch>" >&2
+    echo "      gh pr create" >&2
+    echo "" >&2
+    echo "    To override (intentional direct push):" >&2
+    echo "      NAT_ALLOW_MAIN_PUSH=1 git push origin main" >&2
+    echo "" >&2
+    exit 1
+  fi
+done
+
+exit 0
