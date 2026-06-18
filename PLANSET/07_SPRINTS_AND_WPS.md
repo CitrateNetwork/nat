@@ -40,7 +40,12 @@ an Ollama-class harness, and the routing-differentiation metric beats baseline.
   of equal params (ADR-0005 protocol). *This is the bet-deciding work.*
 - WP-1.4 — GGUF export (`FlattenedDense`) + sidecar; Ollama load test (Gate-3 feature).
 - WP-1.5 — `nat-eval` routing-differentiation over labeled prompt batteries.
-- WP-1.6 — data pipeline at L0 scale (INGEST→…→MANIFEST) producing the L1 shard set.
+- WP-1.6 — data pipeline (INGEST→…→MANIFEST). **Skeleton DONE** (`nat-data`):
+  quality scoring (the economic signal), rule-based zone tagging, exact+near-dup,
+  license/PII gates, deterministic order-independent sharding + manifest hash, and
+  the end-to-end settlement loop (pipeline quality → `StepContribution` →
+  `reward_weight`). Open at L1: real corpora ingestion + a real tokenizer +
+  model-based quality filters.
 
 ## Sprint 2 — Gate 4 (Federated proof)
 

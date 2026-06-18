@@ -24,6 +24,7 @@ members = [
     "crates/nat-mcp",
     "crates/nat-sidecar",
     "crates/nat-core",
+    "crates/nat-data",
     "crates/nat-train",
     "crates/nat-eval",
 ]
@@ -51,6 +52,8 @@ nat-provenance = { path = "crates/nat-provenance" }
 nat-mcp = { path = "crates/nat-mcp" }
 nat-sidecar = { path = "crates/nat-sidecar" }
 nat-core = { path = "crates/nat-core" }
+nat-data = { path = "crates/nat-data" }
+nat-train = { path = "crates/nat-train" }
 
 [profile.release]
 lto = true
