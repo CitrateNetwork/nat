@@ -1,0 +1,13 @@
+[package]
+name = "nat-train"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The NAT training loop. L0 stub (the architecture is validated before training); wired to Burn/Candle at L1 (Gate 3)."
+
+[dependencies]
+nat-core.workspace = true
+nat-types.workspace = true

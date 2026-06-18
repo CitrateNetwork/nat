@@ -1,0 +1,111 @@
+# Machine-readable gate definitions + exit criteria (Research Method §3).
+# CI reads this to check whether a gate's acceptance is green before a merge to
+# the `main` of a higher rung. Status: pending | partial | met.
+version: 1
+program: RFC-CIT-NAT-0001
+
+gates:
+  - id: gate1
+    name: Theory locked
+    status: partial
+    exit_criteria:
+      - id: g1-planset
+        desc: PLANSET refined into the repo (00–09)
+        met: true
+        evidence: PLANSET/
+      - id: g1-formal
+        desc: Three TLA+ modules complete and TLC-green
+        met: false
+        note: modules written (formal/); TLC not yet run — no JRE in bootstrap env
+        evidence: formal/
+      - id: g1-features
+        desc: Gherkin acceptance set written, organized by gate
+        met: true
+        evidence: features/
+      - id: g1-hypotheses
+        desc: Hypothesis ledger + seed ADRs recorded
+        met: true
+        evidence: .agentile/planset/hypotheses.md, .agentile/planset/decisions/
+      - id: g1-counsel
+        desc: Counsel sign-off on claim-shaped statements (C-1..C-5)
+        met: false
+        note: open — Taurien / Lauren review
+    reviewers: [Taurien (legal/IP), Lauren (IP/BD), ML reviewer TBD]
+
+  - id: gate2
+    name: Reference forward pass
+    rung: L0
+    status: met
+    exit_criteria:
+      - id: g2-forward
+        desc: L0 forward pass green against gate2_forward_pass.feature
+        met: true
+        evidence: crates/nat-core/tests/gate2_forward_pass.rs
+      - id: g2-gather
+        desc: Async gather green against gate2_async_gather.feature
+        met: true
+        evidence: crates/nat-core/tests/gate2_async_gather.rs
+      - id: g2-mcp
+        desc: MCP harness green against gate2_mcp_harness.feature
+        met: true
+        evidence: crates/nat-core/tests/gate2_mcp_harness.rs
+      - id: g2-trace
+        desc: Provenance trace complete, hashable, decision-faithful
+        met: true
+        evidence: nat-provenance::verify_decision_faithful + gate2_forward_pass.rs
+      - id: g2-suite
+        desc: cargo test green (workspace), clippy clean
+        met: true
+        evidence: 49 tests passing
+
+  - id: gate3
+    name: Trainable and portable
+    rung: L1
+    status: pending
+    exit_criteria:
+      - id: g3-train
+        desc: L1 model trains on the Spark (Burn/Candle cores)
+        met: false
+      - id: g3-gguf
+        desc: GGUF round-trip; Ollama-class load (FlattenedDense export)
+        met: false
+      - id: g3-routing
+        desc: routing-differentiation metric beats baseline (H-02)
+        met: false
+      - id: g3-h01
+        desc: "H-01 ablation vs dense baseline of equal params (ADR-0005). BLOCKER."
+        met: false
+        note: bet-deciding; baseline protocol pinned in ADR-0005
+
+  - id: gate4
+    name: Federated proof
+    rung: L3
+    status: pending
+    exit_criteria:
+      - id: g4-gather
+        desc: multi-node async signed gather; signatures verify before composition
+        met: false
+      - id: g4-tolerance
+        desc: federated result matches centralized within tolerance (H-05)
+        met: false
+      - id: g4-onchain
+        desc: on-chain trace-hash commit + auditor replay reproduces output hash
+        met: false
+      - id: g4-settlement
+        desc: contribution settles via compute-pool (compute × quality → reward weight)
+        met: false
+        evidence_target: docs/SETTLEMENT_SEAM.md
+
+  - id: gate5
+    name: Productize
+    status: pending
+    exit_criteria:
+      - id: g5-console
+        desc: training console ships from the visual brief
+        met: false
+      - id: g5-patent
+        desc: docs patent-filed (C-1..C-5)
+        met: false
+      - id: g5-l2
+        desc: L2 (~10B) run scheduled with committed compute
+        met: false

@@ -1,0 +1,57 @@
+# nat — Citrate Neuroarchitectural Transformer (RFC-CIT-NAT-0001).
+#
+# Zone-partitioned transformer that stays GGUF/ONNX-compatible, emits a
+# first-class hashable provenance trace, and trains in a federated cycle on
+# Citrate. See PLANSET/ for the full design and .agentile/planset/ for the
+# gates, hypotheses, and decision records.
+#
+# Crate boundaries are load-bearing, not cosmetic:
+#   - nat-types       shared primitives (ZoneId, CoreType, Status, Q16.16). No deps.
+#   - nat-provenance  the trace: schema, deterministic hash, decision-faithful replay.
+#   - nat-mcp         the non-learned executive harness state machine (the safety story).
+#   - nat-sidecar     the .nat.json zone-graph that wraps a GGUF/ONNX tensor container.
+#   - nat-core        zones, router, async gather, deterministic merge, the forward pass.
+#   - nat-train       training loop (stub at L0; wired at L1).
+#   - nat-eval        the eval harness (routing-differentiation, faithfulness, capability/param).
+#
+# The dependency graph is a DAG (no crate depends on a crate that depends on it),
+# which is what keeps nat-core's model assembly from cycling through provenance.
+[workspace]
+resolver = "2"
+members = [
+    "crates/nat-types",
+    "crates/nat-provenance",
+    "crates/nat-mcp",
+    "crates/nat-sidecar",
+    "crates/nat-core",
+    "crates/nat-train",
+    "crates/nat-eval",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.96.0"
+license = "BUSL-1.1"
+authors = ["Citrate Network / Mozi Satori"]
+repository = "https://github.com/CitrateNetwork/nat"
+
+[workspace.dependencies]
+# serialization — struct field order is deterministic, which the trace hash relies on.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ciborium = "0.2"          # canonical CBOR for the bytes we hash (compact, stable for structs)
+thiserror = "1"
+# hashing — provenance commitment + on-chain replay verification.
+sha2 = "0.10"
+
+# Internal crates (path deps; versioned together at the workspace version).
+nat-types = { path = "crates/nat-types" }
+nat-provenance = { path = "crates/nat-provenance" }
+nat-mcp = { path = "crates/nat-mcp" }
+nat-sidecar = { path = "crates/nat-sidecar" }
+nat-core = { path = "crates/nat-core" }
+
+[profile.release]
+lto = true
+codegen-units = 1

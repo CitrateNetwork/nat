@@ -1,0 +1,14 @@
+[package]
+name = "nat-eval"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The NAT eval harness: routing differentiation (H-02), provenance faithfulness (H-03), capability-per-parameter (H-01). Skeleton at L0, the deliverable at L1."
+
+[dependencies]
+nat-core.workspace = true
+nat-provenance.workspace = true
+nat-types.workspace = true
