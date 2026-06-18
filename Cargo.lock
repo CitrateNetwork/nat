@@ -131,6 +131,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nat-data"
+version = "0.0.1"
+dependencies = [
+ "nat-train",
+ "nat-types",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "nat-eval"
 version = "0.0.1"
 dependencies = [

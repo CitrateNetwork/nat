@@ -1,0 +1,18 @@
+[package]
+name = "nat-data"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "The NAT data pipeline: INGEST→…→MANIFEST with quality scoring, zone tagging, and deterministic shards. Produces the data-quality score that feeds the compute-pool settlement seam."
+
+[dependencies]
+nat-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+nat-train.workspace = true

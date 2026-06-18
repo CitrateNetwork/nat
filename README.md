@@ -50,6 +50,8 @@ AUDIT_TIER.md       Tier-1 classification + obligations
 - `nat-mcp` — the non-learned executive harness state machine.
 - `nat-sidecar` — the `.nat.json` zone-graph that wraps a GGUF/ONNX tensor container.
 - `nat-core` — zones, router, async gather, deterministic merge, the forward pass.
+- `nat-data` — the data pipeline (INGEST→…→MANIFEST): quality scoring, zone tagging,
+  dedup, deterministic shards. Produces the `data_quality` score the reward seam uses.
 - `nat-train` / `nat-eval` — training loop and eval harness (L0 stubs, wired at L1).
 
 ## Gates
