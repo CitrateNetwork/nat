@@ -1,0 +1,11 @@
+# Code owners for nat. The owner reviews changes to the whole repo, and is the
+# Tier-1 sign-off authority named in AUDIT_TIER.md (tier changes + audit
+# attestation). Add per-path owners below the catch-all as the team grows.
+* @SaulBuilds
+
+# Reward/verification-bearing surfaces (Tier-1 hot paths) — keep owner review tight.
+/crates/nat-provenance/  @SaulBuilds
+/crates/nat-mcp/         @SaulBuilds
+/crates/nat-types/src/fixed.rs  @SaulBuilds
+/docs/SETTLEMENT_SEAM.md  @SaulBuilds
+/AUDIT_TIER.md           @SaulBuilds
