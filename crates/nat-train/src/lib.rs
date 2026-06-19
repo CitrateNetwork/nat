@@ -7,8 +7,11 @@
 //! recorded hardware — Research Strategy §8), and the data-quality scoring that
 //! feeds the compute-pool settlement seam (`docs/SETTLEMENT_SEAM.md`).
 //!
-//! What is fixed here now is the *shape* of a training step's accounting, so the
-//! settlement seam can be designed against a stable type before L1.
+//! What is fixed here now is the *shape* of a training step's accounting (the
+//! settlement seam) and the **reproducibility floor** (the [`repro`] module), so
+//! both can be designed against stable types before L1.
+
+pub mod repro;
 
 use nat_types::Q16;
 

@@ -36,6 +36,10 @@ an Ollama-class harness, and the routing-differentiation metric beats baseline.
 
 - WP-1.1 — Burn/Candle-backed cores behind the `ZoneCore` trait (replace L0 toys).
 - WP-1.2 — `nat-train` real loop + reproducibility floor (config hash, seed, hw).
+  **Reproducibility floor DONE** (`nat-train::repro`): `RunConfig::config_hash`
+  (hardware-independent logical-run anchor), `Hardware::detect`, `ReproRecord`
+  with a stable instance hash + the exact rerun command. Open at L1: the real
+  Burn/Candle training loop that emits these per run.
 - WP-1.3 — **H-01 ablation** on the 3-zone {HP,PF,CX} config vs a dense baseline
   of equal params (ADR-0005 protocol). *This is the bet-deciding work.*
 - WP-1.4 — GGUF export (`FlattenedDense`) + sidecar; Ollama load test (Gate-3 feature).
