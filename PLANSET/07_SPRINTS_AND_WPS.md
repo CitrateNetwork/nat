@@ -40,6 +40,11 @@ an Ollama-class harness, and the routing-differentiation metric beats baseline.
   of equal params (ADR-0005 protocol). *This is the bet-deciding work.*
 - WP-1.4 — GGUF export (`FlattenedDense`) + sidecar; Ollama load test (Gate-3 feature).
 - WP-1.5 — `nat-eval` routing-differentiation over labeled prompt batteries.
+  **Harness DONE** (`nat-eval`): a 4-class battery, per-class activation
+  centroids, between/within separation ratio + `differentiates(threshold)`, and
+  decision-faithfulness over the battery. At L0 the hand-wired router already
+  separates classes (ratio ≈ 4.3); the same harness runs against the trained L1
+  router for the real H-02 verdict.
 - WP-1.6 — data pipeline (INGEST→…→MANIFEST). **Skeleton DONE** (`nat-data`):
   quality scoring (the economic signal), rule-based zone tagging, exact+near-dup,
   license/PII gates, deterministic order-independent sharding + manifest hash, and
