@@ -185,6 +185,9 @@ version = "0.0.1"
 dependencies = [
  "nat-core",
  "nat-types",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

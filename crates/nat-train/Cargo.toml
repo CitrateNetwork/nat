@@ -11,3 +11,6 @@ description = "The NAT training loop. L0 stub (the architecture is validated bef
 [dependencies]
 nat-core.workspace = true
 nat-types.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
