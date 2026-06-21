@@ -91,5 +91,15 @@ cargo clippy --workspace --all-targets
 
 ## Status
 
-First sprint pass in progress: Gate 1 artifacts + Gate 2 L0 forward pass.
-Tier-1 classification declared (`AUDIT_TIER.md`); promotion on Gate-2 green.
+**Gate 2 green** (L0 forward pass + provenance trace). **Sprint 1 landed**
+(GPU-free): Candle training stack (`nat-candle`, ADR-0010), data pipeline +
+quality scoring (`nat-data`), eval/routing harness (`nat-eval`), reproducibility
+floor (`nat-train`), and the **H-01 ablation harness** (`nat-ablation`). 10
+crates, 87 tests, clippy clean. Tier-1 (`AUDIT_TIER.md`).
+
+**Picking this up on the DGX? Start at [`docs/DGX_HANDOFF.md`](docs/DGX_HANDOFF.md)** —
+a zero-context onboarding: build, verify, the no-toy-cores guarantee, the GPU
+device swap, and running the real H-01 ablation.
+
+CI is verified locally in Docker (`scripts/ci-local.sh`); GitHub Actions is
+pending an enterprise Actions-budget propagation (config is correct).
