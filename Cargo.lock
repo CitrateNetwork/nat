@@ -628,6 +628,8 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "nat-core",
+ "nat-provenance",
+ "nat-sidecar",
  "nat-types",
 ]
 
