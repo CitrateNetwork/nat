@@ -2,7 +2,7 @@
 //! trace (Architecture §1, §5–8). This is the L0 Gate-2 deliverable — it wires
 //! the whole pass end to end and proves the trace emits and validates.
 
-use crate::cores::{AttentionCore, CoreOutput, SsmCore, ZoneCore, D_OUT};
+use crate::cores::{CoreFactory, CoreOutput, ToyCores, D_OUT};
 use crate::featurize::{class_signals, embed};
 use crate::gather::{arrival_status, gather};
 use crate::merge::{merge, output_hash, Gathered};
@@ -42,18 +42,23 @@ pub struct ForwardResult {
     pub mcp: McpOutcome,
 }
 
-/// The model: a sidecar (zone graph) plus the L0 simulated per-zone latencies.
+/// The model: a sidecar (zone graph), a pluggable core backend, and the L0
+/// simulated per-zone latencies.
 pub struct NatModel {
     pub sidecar: Sidecar,
+    cores: Box<dyn CoreFactory>,
     latencies: Vec<(ZoneId, u64)>,
 }
 
 impl NatModel {
-    /// The Gate-2 reference model: default L0 sidecar, default latencies (all
-    /// under the default 100ms deadline, so the happy path is all-`ok`).
+    /// The Gate-2 reference model: default L0 sidecar, **toy cores**, default
+    /// latencies (all under the default 100ms deadline, so the happy path is
+    /// all-`ok`). Toy cores validate the architecture; a real run uses
+    /// [`NatModel::with_cores`] with a non-toy backend.
     pub fn l0() -> Self {
         NatModel {
             sidecar: Sidecar::default_l0(),
+            cores: Box::new(ToyCores),
             latencies: default_latencies(),
         }
     }
@@ -61,8 +66,30 @@ impl NatModel {
     pub fn with_sidecar(sidecar: Sidecar) -> Self {
         NatModel {
             sidecar,
+            cores: Box::new(ToyCores),
             latencies: default_latencies(),
         }
+    }
+
+    /// Build a model with a specific core backend (e.g. the Candle backend from
+    /// `nat-candle`). This is how a real run swaps the toy L0 cores for trained ones.
+    pub fn with_cores(sidecar: Sidecar, cores: Box<dyn CoreFactory>) -> Self {
+        NatModel {
+            sidecar,
+            cores,
+            latencies: default_latencies(),
+        }
+    }
+
+    /// The core backend identifier (recorded in every trace).
+    pub fn backend(&self) -> &str {
+        self.cores.backend()
+    }
+
+    /// Whether this model is running the L0 toy cores. The L1/DGX path asserts
+    /// this is false so a real run can never silently fall back to toys.
+    pub fn uses_toy_cores(&self) -> bool {
+        self.cores.is_toy()
     }
 
     /// Override a zone's simulated latency (used to force a straggler timeout).
@@ -85,13 +112,16 @@ impl NatModel {
             .map(|&z| (z, slice_for(&self.sidecar, &embedding, z)))
             .collect();
 
+        let factory = self.cores.as_ref();
         let cores: Vec<(ZoneId, CoreOutput)> = std::thread::scope(|scope| {
             let handles: Vec<_> = slices
                 .iter()
                 .map(|(z, slice)| {
                     let z = *z;
                     let slice = slice.clone();
-                    scope.spawn(move || (z, run_core(z, &slice)))
+                    // The backend (toy or Candle) decides the core; the forward
+                    // pass is agnostic to which ran.
+                    scope.spawn(move || (z, factory.core_for(z).forward(&slice)))
                 })
                 .collect();
             handles.into_iter().map(|h| h.join().unwrap()).collect()
@@ -288,6 +318,7 @@ impl NatModel {
 
         Trace {
             input_hash,
+            backend: self.cores.backend().to_string(),
             router: router_rec,
             zones,
             inter_zone_flows,
@@ -320,12 +351,4 @@ fn slice_for(sidecar: &Sidecar, embedding: &[f32], zone: ZoneId) -> Vec<f32> {
     let start = decl.slice_offset as usize;
     let end = (start + decl.slice_width as usize).min(embedding.len());
     embedding[start..end].to_vec()
-}
-
-fn run_core(zone: ZoneId, slice: &[f32]) -> CoreOutput {
-    match zone.default_core() {
-        nat_types::CoreType::Ssm => SsmCore::default().forward(slice),
-        nat_types::CoreType::Attention => AttentionCore.forward(slice),
-        nat_types::CoreType::None => unreachable!("MX has no learned core; never run here"),
-    }
 }
