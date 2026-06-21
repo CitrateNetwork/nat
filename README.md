@@ -54,6 +54,8 @@ AUDIT_TIER.md       Tier-1 classification + obligations
   dedup, deterministic shards. Produces the `data_quality` score the reward seam uses.
 - `nat-candle` — Candle-backed zone cores (CPU, GPU-ready) behind `ZoneCore`; the
   L1 training stack (ADR-0010). Kept separate so the L0 build stays Candle-free.
+- `nat-ablation` — the H-01 ablation harness: zone-partitioned vs equal-param
+  dense baseline under the ADR-0005 protocol. The bet-decider, GPU-free now.
 - `nat-train` / `nat-eval` — training loop and eval harness (L0 stubs, wired at L1).
 
 ## Gates
