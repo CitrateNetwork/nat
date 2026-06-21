@@ -622,6 +622,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nat-ablation"
+version = "0.0.1"
+dependencies = [
+ "candle-core",
+ "candle-nn",
+ "nat-train",
+ "thiserror",
+]
+
+[[package]]
 name = "nat-candle"
 version = "0.0.1"
 dependencies = [
