@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+publish.workspace = true
 description = "The NAT data pipeline: INGEST→…→MANIFEST with quality scoring, zone tagging, and deterministic shards. Produces the data-quality score that feeds the compute-pool settlement seam."
 
 [dependencies]

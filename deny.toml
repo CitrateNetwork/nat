@@ -20,18 +20,20 @@ confidence-threshold = 0.8
 # Smallest set that permits the current dependency graph. Adding a license is a
 # reviewed PR. BUSL-1.1 is the Licensed Work's own license (see LICENSE).
 allow = [
+    "BUSL-1.1",        # the Licensed Work's own license (see LICENSE); applies to every nat-* crate
     "Apache-2.0",
     "MIT",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "ISC",
-    "Unicode-3.0",
-    "Zlib",
+    "BSD-2-Clause",    # zerocopy
+    "Unicode-3.0",     # unicode-ident
 ]
 
 [bans]
 multiple-versions = "warn"
+# Deny wildcard ("*") version requirements on EXTERNAL crates (a supply-chain
+# footgun), but allow them for internal workspace path deps — `nat-x.workspace =
+# true` resolves to a path dep with no version req, which is not a risk.
 wildcards = "deny"
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

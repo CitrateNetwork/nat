@@ -30,7 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Install cargo-deny from crates.io rather than a marketplace action, so CI
+      # depends only on GitHub-owned actions (actions/checkout) — no third-party
+      # action allowlist needed, which keeps the Actions policy locked down.
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
       - name: cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@v1
-        with:
-          command: check advisories bans licenses sources
+        run: cargo deny check advisories bans licenses sources
