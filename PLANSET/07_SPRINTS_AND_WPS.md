@@ -49,8 +49,14 @@ an Ollama-class harness, and the routing-differentiation metric beats baseline.
   (hardware-independent logical-run anchor), `Hardware::detect`, `ReproRecord`
   with a stable instance hash + the exact rerun command. Open at L1: the real
   Burn/Candle training loop that emits these per run.
-- WP-1.3 — **H-01 ablation** on the 3-zone {HP,PF,CX} config vs a dense baseline
-  of equal params (ADR-0005 protocol). *This is the bet-deciding work.*
+- WP-1.3 — **H-01 ablation** vs a dense baseline of equal params (ADR-0005
+  protocol). *This is the bet-deciding work.* **Harness DONE** (`nat-ablation`):
+  partitioned vs dense Candle arms, **param-matched in code** (refuses the run if
+  it can't match — ADR-0005 enforced, not assumed), trained identically, with a
+  capability-per-param verdict + repro hash + recorded backend. `guard_not_toy`
+  refuses a toy-backed model. Runs on CPU now (`cargo run -p nat-ablation
+  --example ablation`); the DGX swaps in the full NatModel + real corpus for the
+  conclusive verdict. Toy-scale numbers are illustrative only.
 - WP-1.4 — GGUF export (`FlattenedDense`) + sidecar; Ollama load test (Gate-3 feature).
 - WP-1.5 — `nat-eval` routing-differentiation over labeled prompt batteries.
   **Harness DONE** (`nat-eval`): a 4-class battery, per-class activation

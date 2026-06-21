@@ -1,0 +1,16 @@
+[package]
+name = "nat-ablation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "The H-01 ablation harness: zone-partitioned vs equal-param dense baseline under the ADR-0005 protocol. The bet-decider, GPU-free now and scalable on the DGX."
+
+[dependencies]
+nat-train.workspace = true
+candle-core = "0.8"
+candle-nn = "0.8"
+thiserror.workspace = true

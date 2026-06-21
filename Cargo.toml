@@ -25,6 +25,7 @@ members = [
     "crates/nat-sidecar",
     "crates/nat-core",
     "crates/nat-candle",
+    "crates/nat-ablation",
     "crates/nat-data",
     "crates/nat-train",
     "crates/nat-eval",
