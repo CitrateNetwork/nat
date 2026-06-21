@@ -39,6 +39,11 @@ an Ollama-class harness, and the routing-differentiation metric beats baseline.
   Candle matmul/softmax, deterministic, trait-conformant, GPU-ready by device
   swap) + `train_tiny_zone_head` proving forward + autodiff + AdamW on CPU. L1
   framework locked to Candle (HF ecosystem, GGUF-native). De-risks critique #6.
+  **Wired in:** `NatModel` takes a pluggable `CoreFactory` (toy default,
+  `nat_candle::CandleCores` injectable via `with_cores`/`candle_model`). The core
+  **backend is recorded in every provenance trace** (`toy-l0` | `candle-cpu`) and
+  `uses_toy_cores()` is the hard guard — so a real/DGX run cannot silently fall
+  back to toys, and an auditor can verify which backend produced any trace.
 - WP-1.2 — `nat-train` real loop + reproducibility floor (config hash, seed, hw).
   **Reproducibility floor DONE** (`nat-train::repro`): `RunConfig::config_hash`
   (hardware-independent logical-run anchor), `Hardware::detect`, `ReproRecord`

@@ -14,7 +14,9 @@
 //! not pull Candle unless this crate is built.
 
 pub mod cores;
+pub mod factory;
 pub mod train;
 
 pub use cores::{CandleAttentionCore, CandleSsmCore};
+pub use factory::{candle_model, candle_model_l0, CandleCores};
 pub use train::{train_tiny_zone_head, TrainReport};

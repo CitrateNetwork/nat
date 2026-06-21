@@ -99,6 +99,11 @@ pub struct McpRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Trace {
     pub input_hash: String,
+    /// Identifier of the core backend that ran this pass (e.g. "toy-l0",
+    /// "candle-cpu"). Recorded so an auditor — and the L1/DGX gate — can verify
+    /// which implementation produced the trace, and in particular that a real
+    /// run did NOT silently fall back to the toy L0 cores.
+    pub backend: String,
     pub router: RouterRecord,
     pub zones: Vec<ZoneRecord>,
     pub inter_zone_flows: Vec<EdgeRecord>,

@@ -7,7 +7,7 @@
 //! `ZoneCore` trait is the seam where Burn/Candle-backed cores slot in at L1
 //! (ADR-0006); nothing above this module knows whether a core is toy or trained.
 
-use nat_types::CoreType;
+use nat_types::{CoreType, ZoneId};
 
 /// Length of a zone's output summary vector. Every zone emits this width so the
 /// merge can compose survivors by weighted sum without shape negotiation.
@@ -129,6 +129,44 @@ fn softmax2(a: f32, b: f32) -> (f32, f32) {
     let eb = (b - m).exp();
     let z = ea + eb;
     (ea / z, eb / z)
+}
+
+/// A source of zone cores. The model holds one of these and asks it for a core
+/// per learned zone, so the *backend* (toy L0 vs Candle vs a GPU build) is a
+/// pluggable choice rather than hard-wired into the forward pass.
+///
+/// `nat-core` cannot depend on `nat-candle` (that would cycle), so the Candle
+/// factory lives in `nat-candle` and is injected via `NatModel::with_cores`.
+/// `backend()` and `is_toy()` are what make "this run did not use toy cores"
+/// verifiable: the backend string is recorded in every provenance trace, and the
+/// L1/DGX path asserts `!is_toy()`.
+pub trait CoreFactory: Send + Sync {
+    /// Build a core for one learned zone (never called for the non-learned `MX`).
+    fn core_for(&self, zone: ZoneId) -> Box<dyn ZoneCore>;
+    /// Stable backend identifier, recorded in the trace (e.g. "toy-l0").
+    fn backend(&self) -> &str;
+    /// True only for the L0 toy backend. Real runs assert this is false.
+    fn is_toy(&self) -> bool;
+}
+
+/// The L0 toy backend: small, deterministic, dependency-light cores (ADR-0009).
+/// Validates the architecture; never trains anything. A real run must replace it.
+pub struct ToyCores;
+
+impl CoreFactory for ToyCores {
+    fn core_for(&self, zone: ZoneId) -> Box<dyn ZoneCore> {
+        match zone.default_core() {
+            CoreType::Ssm => Box::new(SsmCore::default()),
+            CoreType::Attention => Box::new(AttentionCore),
+            CoreType::None => unreachable!("MX has no learned core; never built here"),
+        }
+    }
+    fn backend(&self) -> &str {
+        "toy-l0"
+    }
+    fn is_toy(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]
