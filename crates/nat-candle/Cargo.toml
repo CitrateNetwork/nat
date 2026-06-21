@@ -1,0 +1,16 @@
+[package]
+name = "nat-candle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Candle-backed zone cores (CPU) implementing nat_core::cores::ZoneCore. The L1 training stack behind the L0 toy cores (ADR-0009)."
+
+[dependencies]
+nat-core.workspace = true
+nat-types.workspace = true
+candle-core = "0.8"
+candle-nn = "0.8"
