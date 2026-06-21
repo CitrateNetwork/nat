@@ -31,6 +31,7 @@ before that gate's acceptance is green.
 | 0007 | Integrate with compute-pool for settlement |
 | 0008 | Stage zones: six for the pass, three for the first capability test |
 | 0009 | L0 numerics behind the ZoneCore trait |
+| 0010 | Candle as the L1 tensor framework |
 
 ADRs 0001–0004 are the seed decisions from the design conversation; 0005–0009 are
 the Gate-1 review remediations (`PLANSET/08_CRITIQUE_AND_REMEDIATIONS.md`).

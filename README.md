@@ -52,6 +52,8 @@ AUDIT_TIER.md       Tier-1 classification + obligations
 - `nat-core` — zones, router, async gather, deterministic merge, the forward pass.
 - `nat-data` — the data pipeline (INGEST→…→MANIFEST): quality scoring, zone tagging,
   dedup, deterministic shards. Produces the `data_quality` score the reward seam uses.
+- `nat-candle` — Candle-backed zone cores (CPU, GPU-ready) behind `ZoneCore`; the
+  L1 training stack (ADR-0010). Kept separate so the L0 build stays Candle-free.
 - `nat-train` / `nat-eval` — training loop and eval harness (L0 stubs, wired at L1).
 
 ## Gates

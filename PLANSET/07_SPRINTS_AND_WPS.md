@@ -34,7 +34,11 @@ CI) and counsel sign-off on the claim-shaped statements.
 L1 work: a ~1–2B model trains on the Spark, exports to GGUF, round-trips through
 an Ollama-class harness, and the routing-differentiation metric beats baseline.
 
-- WP-1.1 — Burn/Candle-backed cores behind the `ZoneCore` trait (replace L0 toys).
+- WP-1.1 — Candle-backed cores behind the `ZoneCore` trait (replace L0 toys).
+  **DONE** (`nat-candle`, ADR-0010): `CandleSsmCore` + `CandleAttentionCore` (real
+  Candle matmul/softmax, deterministic, trait-conformant, GPU-ready by device
+  swap) + `train_tiny_zone_head` proving forward + autodiff + AdamW on CPU. L1
+  framework locked to Candle (HF ecosystem, GGUF-native). De-risks critique #6.
 - WP-1.2 — `nat-train` real loop + reproducibility floor (config hash, seed, hw).
   **Reproducibility floor DONE** (`nat-train::repro`): `RunConfig::config_hash`
   (hardware-independent logical-run anchor), `Hardware::detect`, `ReproRecord`
