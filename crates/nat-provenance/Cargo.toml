@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
+publish.workspace = true
 description = "The NAT provenance trace: schema, deterministic hash, the canonical merge decision, and decision-faithful replay."
 
 [dependencies]

@@ -36,6 +36,10 @@ rust-version = "1.96.0"
 license = "BUSL-1.1"
 authors = ["Citrate Network / Mozi Satori"]
 repository = "https://github.com/CitrateNetwork/nat"
+# Internal workspace crates — never published to crates.io. This also lets
+# cargo-deny's allow-wildcard-paths exempt the internal path deps (it only
+# applies to non-published crates).
+publish = false
 
 [workspace.dependencies]
 # serialization — struct field order is deterministic, which the trace hash relies on.
