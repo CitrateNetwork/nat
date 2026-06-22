@@ -333,9 +333,33 @@ impl TrainableZonePass {
         self.cores.iter().map(|(z, _)| *z).collect()
     }
 
+    /// Forward with externally-supplied per-zone activations (the learned
+    /// router's output, WP-3). The merge score is `activation × confidence`, where
+    /// `confidence = sigmoid(score_head(summary))` — the architecture's
+    /// "activation × confidence" merge score (§6). `activations`: `(batch,
+    /// n_zones)` in [`Self::zones`] order.
+    pub fn forward_modulated(&self, x: &Tensor, activations: &Tensor) -> Result<Tensor> {
+        let (summaries, raw_scores) = self.cores_forward(x)?;
+        let confidence = candle_nn::ops::sigmoid(&raw_scores)?; // (b, n) in [0,1]
+        let combined = activations.mul(&confidence)?; // activation × confidence
+        let weights = crate::merge_train::soft_weights(&combined, self.tau)?;
+        let composed = crate::merge_train::compose(&weights, &summaries)?;
+        self.head.forward(&composed)
+    }
+
     /// Set the soft-merge temperature (annealing toward the hard decision).
     pub fn set_tau(&mut self, tau: f64) {
         self.tau = tau;
+    }
+
+    /// The pass's parameter map (for the optimizer / checkpointing).
+    pub fn varmap(&self) -> &VarMap {
+        &self.varmap
+    }
+
+    /// Mutable parameter map (for loading a checkpoint).
+    pub fn varmap_mut(&mut self) -> &mut VarMap {
+        &mut self.varmap
     }
 
     /// Train to fit `(x, y)` for `steps` of AdamW, returning `(initial, final)` MSE.

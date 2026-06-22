@@ -20,6 +20,7 @@ pub mod merge_train;
 pub mod router;
 pub mod seed;
 pub mod train;
+pub mod train_loop;
 pub mod trainable;
 
 pub use cores::{CandleAttentionCore, CandleSsmCore};
