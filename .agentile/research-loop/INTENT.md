@@ -27,9 +27,14 @@ H-01/H-02 read updates the next day's intent.
 
 - Seed the data-rich zones **{HP narrative, PF reasoning/math, CX code}** (ADR-0008).
 - Mirror the eval battery: math · narrative · code · sensory.
-- **Logic & language philosophy + Belnap FOUR** — aligns with the provenance
-  verification lattice; keep this stream flowing.
-- Permissive licenses only (fail-closed gate). Provenance immutable.
+- **The values spine** (see `READING_LIST.md`): rules, language, meaning
+  (Wittgenstein rule-following + private language → "the rules of the room"), logic
+  (Boole → Frege → Russell → Belnap), computation (Turing → Church → Shannon), the
+  craft of code (SICP, the Rust Book, permissive repos), and expression (Strunk,
+  Whitman, Montaigne). The goal: a good coder with great logic, creative and
+  expressive, who follows the rules of the room they are in.
+- Permissive licenses only (fail-closed gate). Provenance immutable. Copyrighted
+  ideas enter only via authored CC0 explainers (we own the framing).
 
 ## Current bottleneck (from the latest result)
 
@@ -42,6 +47,21 @@ H-01/H-02 read updates the next day's intent.
 ## Intent log
 
 > Append a block per day. Newest at the top.
+
+### 2026-06-22 — the values spine (owner)
+- Add **Wittgenstein on private language + rule-following** — critical for the model
+  to grasp rulemaking *without* a community or spirit behind the rule (it can't be
+  done): meaning needs a public practice. This is the root of "follow the rules of
+  the room." **Done as CC0 explainers** (PI is copyrighted); Tractatus (PD) to fetch.
+- Add **Alan Turing** (and the computation lineage) — align the model with technology
+  + design, not only philosophy. CC0 explainers done; PD primary sources (Turing
+  life+70 as of 2025, Boole, Lovelace) to fetch.
+- Goal restated: **a good coder, with great logic, that is creative and expressive,
+  while following the general rules of the room they are in.** Curated targets +
+  license status in `READING_LIST.md`.
+- Next sourcing: Tractatus (5740), Boole *Laws of Thought* (15114), Strunk *Elements
+  of Style* (37134), Alice (11), Whitman (1322); SICP (CC-BY-SA) + Rust Book
+  (MIT/Apache) once a markdown-text connector exists.
 
 ### 2026-06-22 — kickoff
 - Grow all four zones from the seed; prioritize PF (reasoning/math) + the Belnap/logic

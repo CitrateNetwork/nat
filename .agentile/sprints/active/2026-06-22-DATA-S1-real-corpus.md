@@ -45,6 +45,15 @@ contradicted) — training on it aligns the model with the architecture's own st
 | WP-D5 | **BPE tokenizer + model-based quality** | learned vocab behind the same interface; perplexity/classifier quality gate (replaces L0 heuristic) | planned |
 | WP-D6 | **Scale corpus → decisive H-01/H-02** | ≥ N tokens across the 4 zones; re-run conclusive ablation + held-out H-02 on real data | planned (gated on Hermes volume) |
 | WP-D7 | **Per-position autoregressive LM** (architecture) | causal per-position next-token heads; full LM loss | planned (out of DATA-S1 if it grows) |
+| WP-D8 | **Code-aware NORMALIZE** | preserve newlines/indentation so code structure survives the pipeline (CX zone) | planned |
+| WP-D9 | **`from-text`/`from-markdown` connector** | ingest CC text (SICP CC-BY-SA, the Rust Book MIT/Apache) | planned |
+
+**Values spine (owner intent 2026-06-22):** beyond the domain table, the corpus
+targets a curated set — Wittgenstein (rule-following / private language → "the rules
+of the room"), Turing + the computation lineage, the craft of code (SICP, the Rust
+Book, permissive repos), and expressive writing (Strunk, Whitman). Full list + license
+status: `research-loop/READING_LIST.md`. Copyrighted ideas enter only via authored CC0
+explainers (6 added to the seed corpus: Wittgenstein ×3, Turing ×2, code-as-rule-following).
 
 ## Sources & licensing posture (hard rules)
 

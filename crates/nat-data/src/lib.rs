@@ -22,6 +22,7 @@
 //! whitespace tokenization). Model-based filters and a real tokenizer land at L1.
 //! Raw is never mutated; dropped data is quarantined with a reason, not deleted.
 
+pub mod code;
 pub mod gutenberg;
 pub mod jsonl;
 pub mod manifest;
