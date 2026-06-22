@@ -22,6 +22,7 @@
 //! whitespace tokenization). Model-based filters and a real tokenizer land at L1.
 //! Raw is never mutated; dropped data is quarantined with a reason, not deleted.
 
+pub mod jsonl;
 pub mod manifest;
 pub mod persist;
 pub mod quality;
@@ -47,13 +48,20 @@ pub const ALLOWED_LICENSES: &[&str] = &[
 ];
 
 /// A raw input document, as fetched. Its hash is recorded and it is never edited.
-#[derive(Debug, Clone)]
+///
+/// This is the **ingest contract** (the `RawDoc` JSONL format, HERMES-S1 WP-H2):
+/// one JSON object per line, fields `id`, `source`, `license`, `fetch_date`,
+/// `text`, and optional `modality_refs`. A collector (Hermes) emits this; the
+/// pipeline CLI consumes it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawDoc {
     pub id: String,
     pub source: String,
     pub license: String,
     pub fetch_date: String,
     pub text: String,
+    /// Optional references to non-text modality artifacts (defaults to empty).
+    #[serde(default)]
     pub modality_refs: Vec<String>,
 }
 
