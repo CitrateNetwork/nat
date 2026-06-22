@@ -16,7 +16,9 @@
 pub mod cores;
 pub mod device;
 pub mod factory;
+pub mod seed;
 pub mod train;
+pub mod trainable;
 
 pub use cores::{CandleAttentionCore, CandleSsmCore};
 pub use factory::{candle_model, candle_model_l0, CandleCores};
