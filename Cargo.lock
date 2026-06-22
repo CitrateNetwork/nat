@@ -710,8 +710,11 @@ dependencies = [
 name = "nat-eval"
 version = "0.0.1"
 dependencies = [
+ "candle-core",
+ "nat-candle",
  "nat-core",
  "nat-provenance",
+ "nat-sidecar",
  "nat-types",
 ]
 
