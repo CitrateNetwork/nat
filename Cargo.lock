@@ -680,6 +680,7 @@ dependencies = [
  "nat-core",
  "nat-provenance",
  "nat-sidecar",
+ "nat-train",
  "nat-types",
 ]
 
