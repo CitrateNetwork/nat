@@ -81,8 +81,8 @@ gates:
         met: true
         note: >-
           NAT-S2 WP-3 — trained LearnedRouter separation 11.70 vs L0 baseline
-          4.25 on nat_eval's battery (same metric). Caveat: in-sample; held-out
-          batteries at scale are the final read.
+          4.25 on nat_eval's battery (same metric). Held-out (extended battery, train/test split): trained 3.10 vs L0 2.63 —
+          it generalizes (nat-eval h02_heldout). Full-scale batteries remain the L2 read.
         evidence: crates/nat-eval/tests/h02_trained_router.rs
       - id: g3-h01
         desc: "H-01 ablation vs dense baseline of equal params (ADR-0005). BLOCKER."

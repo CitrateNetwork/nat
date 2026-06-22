@@ -14,11 +14,11 @@ Format: `H-id | statement | status: open|supported|refuted | evidence`.
   is future. If a larger run refutes it, change course.
 
 - **H-02** | Context-aware routing produces measurably different zone mixes for
-  different prompt classes. | **supported (in-sample at L1)** | NAT-S2 WP-3 — the
-  trained `LearnedRouter` separates the battery at ratio **11.70 vs the L0 baseline
-  4.25** (same `nat_eval::separation_ratio` metric). In-sample (trained + scored on
-  the same battery, as is the baseline); the conclusive read is held-out batteries
-  at full scale.
+  different prompt classes. | **supported (held-out at L1)** | NAT-S2 WP-3 — the
+  trained `LearnedRouter` separates the battery (11.70 vs L0 4.25, in-sample); and on
+  an extended battery split train/held-out, the trained router still beats the L0
+  baseline on prompts it never saw (**3.10 vs 2.63**, `nat-eval` `h02_heldout`). It
+  generalizes, not memorizes. Full-scale labeled batteries remain the L2 read.
 
 - **H-03a** | Provenance is *decision-faithful*: replaying recorded scores
   reproduces the recorded survivors and weights. | **supported** | Proven by
