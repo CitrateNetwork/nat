@@ -25,7 +25,10 @@ impl CoreFactory for CandleCores {
         }
     }
     fn backend(&self) -> &str {
-        "candle-cpu"
+        // Honest by construction: the label tracks the device that actually came
+        // up (see `crate::device`), so the trace records "candle-cuda" only on a
+        // real GPU run and "candle-cpu" otherwise.
+        crate::device::backend_label()
     }
     fn is_toy(&self) -> bool {
         false
@@ -50,13 +53,16 @@ mod tests {
     #[test]
     fn candle_model_runs_a_forward_pass_with_real_cores() {
         let model = candle_model_l0();
-        // The guarantee the DGX path depends on: this is NOT the toy backend.
+        // The guarantee the DGX path depends on: this is NOT the toy backend, and
+        // the backend label reflects the device that actually came up (cpu or cuda).
+        let expected = crate::device::backend_label();
         assert!(!model.uses_toy_cores());
-        assert_eq!(model.backend(), "candle-cpu");
+        assert!(expected.starts_with("candle-"));
+        assert_eq!(model.backend(), expected);
 
         let r = model.forward("compute 12 * 7 + 3 and explain", None);
         // The trace records the real backend, so an auditor can verify no toy fallback.
-        assert_eq!(r.trace.backend, "candle-cpu");
+        assert_eq!(r.trace.backend, expected);
         // The pass still produces a complete, decision-faithful trace.
         assert!(nat_provenance::verify_decision_faithful(&r.trace));
         assert!(!r.output.output_hash.is_empty());
@@ -67,7 +73,9 @@ mod tests {
         let toy = NatModel::l0().forward("hello world", None);
         let candle = candle_model_l0().forward("hello world", None);
         assert_eq!(toy.trace.backend, "toy-l0");
-        assert_eq!(candle.trace.backend, "candle-cpu");
+        assert_eq!(candle.trace.backend, crate::device::backend_label());
+        // The point: a real-core run is never mistaken for the toy backend.
+        assert!(candle.trace.backend.starts_with("candle-"));
         assert_ne!(toy.trace.backend, candle.trace.backend);
     }
 }
