@@ -48,6 +48,13 @@ contradicted) — training on it aligns the model with the architecture's own st
 | WP-D8 | **Code-aware NORMALIZE** | preserve newlines/indentation so code structure survives the pipeline (CX zone) | planned |
 | WP-D9 | **`from-text`/`from-markdown`/`from-pdf` connector** | ingest CC text (SICP CC-BY-SA, Rust Book) + PDF/LaTeX-only PD (Boole, Tractatus) | planned |
 | WP-D10 | **Mini-batch SGD over the full corpus** | the loop samples shuffled mini-batches from all shards, not a fixed 30K-window full-batch slice — so the ~1M-token corpus is actually used | ✅ **done** — `NatTrainModel::train_minibatched` (seeded Fisher-Yates shuffle, `index_select` batches). On the 1.12M-token corpus: 160K train windows, held-out **4.02 bits/byte monotonically improving across 8 epochs, no overfit** (vs the full-batch slice's 2.95→3.04 climb). |
+| WP-D11 | **Scale ladder toward L2** | bigger/wider configs train on real data; loss falls with scale | ✅ **done** — `NatTrainConfig::byte_lm{,_medium,_large}` + example `scale_ladder`. On the corpus: S (20718 p, 3-zone) **4.097** → M (56534 p, 3-zone) **4.054** → L (114956 p, **5-zone incl. SM/CB SSM**) **3.953** bits/byte. The architecture scales on real data; widening to 5 zones (ADR-0008) is the best rung. |
+
+**Toward L2 (next architectural steps, in order):** WP-D7 per-position autoregressive
+LM (the efficiency step — predict at every position, not one byte per fixed context) ·
+WP-D5 BPE vocab · WP-D8 code-aware NORMALIZE · then bigger still + committed compute.
+The scale ladder (WP-D11) is the evidence that justifies it: loss falls monotonically
+with size on real data.
 
 **Values-spine corpus built (2026-06-22):** `scripts/fetch-values-spine.sh` →
 **1,120,711 tokens / 779 shards / quality 0.852 / 0 quarantined** (Russell ×3, Strunk,
