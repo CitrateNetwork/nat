@@ -19,6 +19,11 @@ CONSTANTS N,            \* zones are 1..N
 
 Zones == 1..N
 
+\* A concrete score for model checking: zone z scores z (distinct, monotone). The
+\* .cfg overrides the Score constant with this (TLC cfg cannot hold a function
+\* literal directly).
+ScoreFcn == [z \in Zones |-> z]
+
 ASSUME N \in Nat /\ N >= 1
 ASSUME KeepCount \in Nat /\ KeepCount >= 1
 ASSUME Score \in [Zones -> Nat]

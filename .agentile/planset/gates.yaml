@@ -15,9 +15,12 @@ gates:
         evidence: PLANSET/
       - id: g1-formal
         desc: Three TLA+ modules complete and TLC-green
-        met: false
-        note: modules written (formal/); TLC not yet run — no JRE in bootstrap env
-        evidence: formal/
+        met: true
+        note: >-
+          TLC-green 2026-06-22 (scripts/run-tlc.sh): MergeDeterminism (31 states),
+          AsyncGather (40), McpHarness (10) — no errors. Fixed MergeDeterminism.cfg
+          to override Score via `<- ScoreFcn` (TLC cfg can't hold a function literal).
+        evidence: formal/ ; scripts/run-tlc.sh
       - id: g1-features
         desc: Gherkin acceptance set written, organized by gate
         met: true
