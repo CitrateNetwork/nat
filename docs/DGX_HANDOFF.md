@@ -137,19 +137,42 @@ assert_eq!(model.backend(), "candle-cpu"); // "candle-cuda" once you wire the GP
 
 ## 5. Taking it to the GPU (the actual Gate-3 work)
 
-### 5.1 Candle on CUDA
-The Candle cores in `nat-candle/src/cores.rs` build their tensors on
-`candle_core::Device::Cpu`. To run on the DGX GPU:
+### 5.1 Candle on CUDA — DONE (2026-06-21)
+The device swap is implemented and verified live on the GB10. The cores no longer
+hardcode `Device::Cpu`; device selection lives in one place,
+`nat-candle/src/device.rs`:
 
-1. Enable Candle's CUDA feature: in `crates/nat-candle/Cargo.toml`, set
-   `candle-core = { version = "0.8", features = ["cuda"] }` (same for
-   `candle-nn`). Ensure CUDA toolkit + a matching driver are installed.
-2. Swap the device: replace `Device::Cpu` with
-   `Device::cuda_if_available(0)?` (or `Device::new_cuda(0)?`). The op graph
-   (matmul, softmax, the SSM lower-triangular matmul) is **unchanged** — that was
-   the whole point of choosing a real tensor framework now.
-3. Make the backend label honest: have `CandleCores::backend()` return
-   `"candle-cuda"` when built on a GPU device, so the trace records reality.
+- `device()` returns CPU by default, or the first CUDA device when the crate is
+  built with the `cuda` feature (`Device::cuda_if_available(0)`, fail-honest CPU
+  fallback). The cores and the trainer read it; nothing else changed, because the
+  op graph (matmul, softmax, the SSM lower-triangular matmul) is device-agnostic.
+- `backend_label()` is **honest by construction** — derived from the device that
+  actually came up, so `trace.backend` records `"candle-cuda"` only on a real GPU
+  run and `"candle-cpu"` otherwise. It can never claim a GPU run that did not
+  happen (the §4 "record reality" guarantee, extended to cpu-vs-cuda).
+- The `cuda` cargo feature wires `candle-core/candle-nn` CUDA on. Off by default so
+  the standard build + CI stay CPU-only.
+
+**Building the GPU path (two non-obvious toolchain facts):**
+
+1. **CUDA version.** candle 0.8.4 pins cudarc 0.13.9, whose build script
+   hard-rejects any CUDA toolkit **newer than 12.8**. A box with only CUDA 13
+   cannot build the GPU path. Install the 12.8 toolkit side-by-side (does **not**
+   touch the driver): `sudo apt-get install -y cuda-toolkit-12-8`.
+2. **GPU arch.** nvcc 12.8 knows `sm_120` but not the GB10's `sm_121` (needs nvcc
+   ≥ 12.9). Compile virtual `compute_120` PTX (`CUDA_COMPUTE_CAP=120`) and let the
+   CUDA-13 driver JIT it to sm_121 at load.
+
+Both are encapsulated in **`scripts/dgx-gpu.sh`**:
+
+```sh
+scripts/dgx-gpu.sh build    # cargo build -p nat-candle --features cuda
+scripts/dgx-gpu.sh test     # GPU test suite
+scripts/dgx-gpu.sh probe    # asserts the GPU device is actually live (candle-cuda)
+```
+
+(The aarch64 `+fp16` rustflag that `gemm-f16` needs to build at all is supplied
+automatically by `.cargo/config.toml`.)
 
 ### 5.2 The H-01 ablation, for real (the bet)
 `nat-ablation` currently trains tiny partitioned-vs-dense Candle MLPs on synthetic
@@ -180,8 +203,9 @@ at scale (Data Ops §4).
 
 ## 6. What is NOT done yet (your backlog, in priority order)
 
-1. **GPU device swap** in `nat-candle` (§5.1) — first thing; unblocks everything.
-2. **Real H-01 ablation** (§5.2) — *the bet*. The harness is ready.
+1. ~~**GPU device swap** in `nat-candle` (§5.1)~~ — **DONE 2026-06-21**, verified
+   live on the GB10 (`candle-cuda`). See §5.1 + `scripts/dgx-gpu.sh`.
+2. **Real H-01 ablation** (§5.2) — *the bet*. The harness is ready. ← next.
 3. **WP-1.4 — GGUF `FlattenedDense` export** + sidecar (`nat-sidecar::ExportKind`).
    Retires the "runs opaquely in Ollama" claim (critique #7). Candle is
    GGUF-native, so this is a clean fit.
