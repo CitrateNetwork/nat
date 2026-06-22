@@ -70,6 +70,26 @@ impl NatTrainConfig {
         }
     }
 
+    /// A 3-zone byte-level language-model config for the real-corpus path
+    /// (DATA-S1): vocab 256, next-byte objective. `in_dim = seq_len·d_emb = 576`,
+    /// split 3×192, each zone reading it as 8 tokens of width 24.
+    pub fn byte_lm_3zone() -> Self {
+        NatTrainConfig {
+            zones: vec![ZoneId::HP, ZoneId::PF, ZoneId::CX],
+            vocab: nat_data::tokenizer::BYTE_VOCAB,
+            seq_len: 24,
+            d_emb: 24,
+            d_model: 24,
+            d_out: 24,
+            n_classes: nat_data::tokenizer::BYTE_VOCAB, // predict the next byte
+            hidden: 32,
+            tau: 1.0,
+            seed: 2026,
+            data_quality: 0.9,
+            compute_per_token: 0.01,
+        }
+    }
+
     fn in_dim(&self) -> usize {
         self.seq_len * self.d_emb
     }
@@ -299,6 +319,24 @@ mod tests {
         assert!(
             after < before * 0.85,
             "held-out loss did not fall: {before} -> {after}"
+        );
+    }
+
+    #[test]
+    fn trains_on_real_corpus_bytes_smoke() {
+        // The real-data path (DATA-S1): seed corpus → pipeline → next-byte windows
+        // → the loop reduces loss on REAL bytes. A fast smoke test (small + few
+        // steps, lr 0.003 — 0.02 diverges); the full held-out convergence (and the
+        // overfitting that motivates more data) is `examples/train_corpus.rs` on GPU.
+        let cfg = NatTrainConfig::byte_lm_3zone();
+        let mut model = NatTrainModel::new(&cfg).unwrap();
+        let (ids, targets) = crate::corpus::seed_windows(cfg.seq_len, 96, model.device()).unwrap();
+        let before = model.loss_on(&ids, &targets).unwrap();
+        model.train(&ids, &targets, 40, 0.003).unwrap();
+        let after = model.loss_on(&ids, &targets).unwrap();
+        assert!(
+            after.is_finite() && after < before * 0.95,
+            "no learning: {before} -> {after}"
         );
     }
 

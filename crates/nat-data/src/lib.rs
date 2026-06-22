@@ -23,7 +23,10 @@
 //! Raw is never mutated; dropped data is quarantined with a reason, not deleted.
 
 pub mod manifest;
+pub mod persist;
 pub mod quality;
+pub mod seed;
+pub mod tokenizer;
 pub mod zonetag;
 
 use manifest::{CorpusManifest, Shard, ShardManifest};
