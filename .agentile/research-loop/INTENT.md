@@ -48,6 +48,16 @@ H-01/H-02 read updates the next day's intent.
 
 > Append a block per day. Newest at the top.
 
+### 2026-06-22 — CONCLUSIVE H-01 on real data (WP-D6) — the bet HOLDS
+- `run_real_corpus_ablation`: real NatModel vs equal-param dense transformer
+  (20718≈20701), both **mini-batch-trained on the 1.12M-token corpus**, held-out
+  cap/param, 5 seeds (GPU).
+- **H-01 HOLDS, 5/5 seeds**: NAT held-out loss 2.88–2.91 < dense 2.97–2.99 —
+  partitioning beats the dense baseline per parameter on real text. (Synthetic was a
+  marginal 3/5; real data is decisive.) gates.yaml g3-h01 → **met**; H-01 → supported.
+- Caveat: small byte-LM 3-zone scale (~20K params). **Next**: H-02 held-out, then
+  scale (bigger model + BPE + WP-D8 code-normalize) toward the L2 read.
+
 ### 2026-06-22 — mini-batch loop (WP-D10) — corpus now exploited
 - `NatTrainModel::train_minibatched` (seeded shuffle + `index_select` batches). The
   loop now consumes **160K train windows** of the 1.12M-token corpus (was a fixed

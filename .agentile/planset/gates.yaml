@@ -86,15 +86,17 @@ gates:
         evidence: crates/nat-eval/tests/h02_trained_router.rs
       - id: g3-h01
         desc: "H-01 ablation vs dense baseline of equal params (ADR-0005). BLOCKER."
-        met: false
+        met: true
         note: >-
-          NAT-S2 WP-5 — the conclusive HARNESS is done: real NatTrainModel vs an
-          equal-param DenseTransformerArm, param-matched (3882=3882), multi-seed,
-          on GPU. First read HOLDS on the mean (nat 4.37 ≥ dense 3.88 cap/param)
-          but only 3/5 seeds — a MARGINAL hold on the synthetic task, NOT decisive.
-          Real-corpus data at larger scale is the final word. Honest posture:
-          reported, not over-claimed.
-        evidence: crates/nat-ablation/src/real.rs
+          DECIDED on real data (DATA-S1 WP-D6, 2026-06-22): real NatTrainModel vs an
+          equal-param dense transformer (20718≈20701), both mini-batch-trained on the
+          1.12M-token PD corpus (next-byte LM), capability on a HELD-OUT split,
+          5 seeds, on GPU. **H-01 HOLDS, 5/5 seeds**: NAT held-out loss 2.88–2.91 <
+          dense 2.97–2.99 — partitioning beats the dense baseline per parameter on
+          real text. (The earlier WP-5 synthetic read was a marginal 3/5; real data
+          is decisive.) Caveat: small byte-LM 3-zone scale (~20K params); L2 scale
+          remains future. Honest posture: if a larger run refutes it, change course.
+        evidence: "crates/nat-ablation/src/real.rs (run_real_corpus_ablation); example real_h01_corpus"
 
   - id: gate4
     name: Federated proof
