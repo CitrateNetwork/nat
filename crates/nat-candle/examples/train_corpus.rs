@@ -6,7 +6,7 @@
 //! Reports held-out cross-entropy in nats and bits/byte; the uniform-byte baseline
 //! is ln(256) ≈ 5.545 nats = 8.0 bits/byte.
 
-use nat_candle::corpus::seed_windows;
+use nat_candle::corpus::{seed_windows, windows_from_dir};
 use nat_candle::train_loop::{NatTrainConfig, NatTrainModel};
 
 fn main() {
@@ -18,7 +18,23 @@ fn main() {
         model.param_count()
     );
 
-    let (ids, targets) = seed_windows(cfg.seq_len, 3000, model.device()).unwrap();
+    // Optional arg: a persisted corpus dir (from `nat-corpus run`). Default: seed.
+    let (ids, targets) = match std::env::args().nth(1) {
+        Some(dir) => {
+            println!("corpus: {dir}");
+            windows_from_dir(
+                std::path::Path::new(&dir),
+                cfg.seq_len,
+                30000,
+                model.device(),
+            )
+            .unwrap()
+        }
+        None => {
+            println!("corpus: seed (built-in)");
+            seed_windows(cfg.seq_len, 3000, model.device()).unwrap()
+        }
+    };
     let n = ids.dims2().unwrap().0;
     let n_tr = n * 4 / 5;
     let xtr = ids.narrow(0, 0, n_tr).unwrap();

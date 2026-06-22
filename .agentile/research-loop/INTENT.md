@@ -33,9 +33,11 @@ H-01/H-02 read updates the next day's intent.
 
 ## Current bottleneck (from the latest result)
 
-- 2026-06-22: byte-LM on the 4KB seed reaches **4.18 bits/byte** then **overfits** —
-  the limiter is **data volume**, not architecture. Need orders of magnitude more
-  permissive text across the four zones before the conclusive H-01/H-02 is decisive.
+- 2026-06-22 (updated): the **overfit is resolved by volume**. With ~170K tokens of
+  PD text the byte-LM holds **4.05 bits/byte on held-out, flat across 8 epochs** (no
+  climb-back). Next limiter: corpus *breadth + size* — add code (CX) and more
+  reasoning/logic, then re-run the **conclusive H-01/H-02 on real data** (DATA-S1
+  WP-D6). Connectors beyond Gutenberg (HF, permissive code) are the path to volume.
 
 ## Intent log
 
@@ -57,4 +59,14 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
-- _(none yet — first cycle pending HERMES-S1 WP-H6)_
+### 2026-06-22 — first real cycle (Claude, manual; pre-Hermes)
+- **Sourced**: Gutenberg (PD) — 1342 Pride & Prejudice (narrative/HP), 5827 Problems
+  of Philosophy (logic/language/PF), 41654 Intro to Mathematical Philosophy (math/PF).
+- **Refined**: `nat-corpus from-gutenberg` → 404 passages → pipeline → **403 kept,
+  135 shards, 170,379 tokens, aggregate_quality 0.854**, 1 quarantined (PII false-pos).
+- **Trained**: byte-LM 3-zone on the corpus (GPU) → held-out **4.05 bits/byte**, flat
+  across 8 epochs — the seed's overfit is **gone**.
+- **Built**: the Gutenberg connector (`nat-data::gutenberg`) + `from-gutenberg` CLI
+  (caught a CRLF-splitting bug → regression-tested).
+- **Next**: a code (CX) connector + more logic/reasoning volume → re-run conclusive
+  H-01/H-02 on real data.
