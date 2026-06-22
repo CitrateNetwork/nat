@@ -1,19 +1,23 @@
-//! WP-1 — the tensor-native trainable spine (NAT-S2).
+//! WP-1/WP-2 — the tensor-native trainable spine + differentiable merge (NAT-S2).
 //!
 //! The inference cores ([`crate::cores`]) implement `ZoneCore::forward(&[f32]) ->
 //! CoreOutput([f32; D_OUT])`, which **drops the autodiff graph** at the array
 //! boundary — fine for emitting a provenance trace, useless for training. This
 //! module is the parallel *trainable* forward: every zone core is tensor-native
-//! ([`TensorCore::forward_t`] returns a `Tensor`), the zones are composed with a
-//! learned head, and a loss at the output backpropagates to **every zone's
-//! parameters**. That continuity is the whole point of WP-1 and the seam the rest
-//! of NAT-S2 builds on (WP-2 swaps the head for the reconciled differentiable
-//! merge; WP-5 uses this as the real partitioned arm of the H-01 ablation).
+//! ([`TensorCore::forward_t`] returns a `Tensor`) and a loss at the output
+//! backpropagates to **every zone's parameters**. That continuity (WP-1) is the
+//! seam the rest of NAT-S2 builds on (WP-5 uses this as the real partitioned arm
+//! of the H-01 ablation).
 //!
 //! Shapes mirror the model: input is sliced per zone (the partitioning), each
 //! slice is read as a short token sequence `(seq, d_model)`, the core is a
 //! sequence operator (attention for HP/PF/CX, a learned linear-recurrence SSM for
-//! SM/CB), pooled to a fixed `d_out` summary; the summaries concat into the head.
+//! SM/CB), pooled to a fixed `d_out` summary. The summaries are composed by the
+//! **differentiable merge** (WP-2, [`crate::merge_train`]): each zone also emits a
+//! scalar score, `softmax(scores / τ)` weights the summaries, and a readout maps
+//! the composed vector to the output. The scores are the same signal the canonical
+//! `prune_and_reweight` hardens at inference — see `merge_train` for the
+//! reconciliation that keeps training and the recorded decision in agreement.
 
 use crate::seed::{seeded_linear, seeded_scalar_var};
 use candle_core::{DType, Device, Result, Tensor, D};
@@ -178,24 +182,35 @@ pub struct ZonePassConfig {
     pub in_dim: usize,
     /// Token width each zone reads its slice as (`slice_w` must be a multiple).
     pub d_model: usize,
-    /// Per-zone summary width handed to the head.
+    /// Per-zone summary width handed to the merge.
     pub d_out: usize,
     /// Final output width.
     pub out_dim: usize,
+    /// Softmax temperature for the differentiable merge (WP-2). Large → uniform;
+    /// → 0 anneals toward the hard top-k decision. `1.0` is a sane default.
+    pub tau: f64,
     pub seed: u64,
 }
 
-/// The WP-1 trainable spine: per-zone tensor-native cores over input slices,
-/// composed by a learned head. One `VarMap` holds every parameter, so a single
-/// optimizer trains the whole pass and gradients reach every zone.
+/// The trainable spine: per-zone tensor-native cores over input slices, composed
+/// by the **differentiable merge** (WP-2) and a learned readout. One `VarMap`
+/// holds every parameter, so a single optimizer trains the whole pass and
+/// gradients reach every zone, every score head, and the readout.
 ///
-/// The compose here (concat → linear head) is a deliberate WP-1 placeholder for
-/// the differentiable merge reconciled to the Q16.16 provenance merge (WP-2).
+/// Compose (WP-2): each zone emits a summary and a scalar score; the soft merge
+/// `softmax(scores / τ)` weights the summaries into one composed vector, then the
+/// readout maps it to `out_dim`. The scores are the same signal the canonical
+/// `nat_provenance::prune_and_reweight` hardens at inference — see
+/// [`crate::merge_train`] for the reconciliation.
 pub struct TrainableZonePass {
     varmap: VarMap,
     cores: Vec<(ZoneId, Box<dyn TensorCore>)>,
+    /// One scalar-score head per zone (`d_out → 1`), in `cores` order.
+    score_heads: Vec<Linear>,
+    /// Readout from the composed summary (`d_out → out_dim`).
     head: Linear,
     slice_w: usize,
+    tau: f64,
     device: Device,
 }
 
@@ -243,21 +258,23 @@ impl TrainableZonePass {
             cores.push((z, core));
         }
 
-        let head = seeded_linear(
-            &varmap,
-            &vb,
-            "head",
-            n * cfg.d_out,
-            cfg.out_dim,
-            cfg.seed,
-            &dev,
-        )?;
+        // One scalar-score head per zone (in cores order), then the readout.
+        let mut score_heads = Vec::with_capacity(n);
+        for (z, _) in &cores {
+            let name = format!("score_{}", z.as_str());
+            score_heads.push(seeded_linear(
+                &varmap, &vb, &name, cfg.d_out, 1, cfg.seed, &dev,
+            )?);
+        }
+        let head = seeded_linear(&varmap, &vb, "head", cfg.d_out, cfg.out_dim, cfg.seed, &dev)?;
 
         Ok(TrainableZonePass {
             varmap,
             cores,
+            score_heads,
             head,
             slice_w,
+            tau: cfg.tau,
             device: dev,
         })
     }
@@ -276,21 +293,49 @@ impl TrainableZonePass {
             .sum()
     }
 
-    /// Forward pass: slice the input per zone, run each core, concat the summaries,
-    /// project through the head. Input `(batch, in_dim)` → `(batch, out_dim)`.
+    /// Run the zone cores and score heads. Returns `(summaries, scores)` where
+    /// `summaries` is `(batch, n_zones, d_out)` and `scores` is `(batch, n_zones)`.
+    fn cores_forward(&self, x: &Tensor) -> Result<(Tensor, Tensor)> {
+        let mut summaries = Vec::with_capacity(self.cores.len());
+        let mut scores = Vec::with_capacity(self.cores.len());
+        for (i, (_z, core)) in self.cores.iter().enumerate() {
+            let slice = x.narrow(1, i * self.slice_w, self.slice_w)?;
+            let s = core.forward_t(&slice)?; // (b, d_out)
+            scores.push(self.score_heads[i].forward(&s)?); // (b, 1)
+            summaries.push(s);
+        }
+        let summary_refs: Vec<&Tensor> = summaries.iter().collect();
+        let score_refs: Vec<&Tensor> = scores.iter().collect();
+        let summaries = Tensor::stack(&summary_refs, 1)?; // (b, n, d_out)
+        let scores = Tensor::cat(&score_refs, 1)?; // (b, n)
+        Ok((summaries, scores))
+    }
+
+    /// Forward pass: slice the input per zone, run each core, compose the
+    /// summaries by the differentiable soft merge (WP-2), then read out.
+    /// Input `(batch, in_dim)` → `(batch, out_dim)`.
     pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
-        let summaries: Vec<Tensor> = self
-            .cores
-            .iter()
-            .enumerate()
-            .map(|(i, (_z, core))| {
-                let slice = x.narrow(1, i * self.slice_w, self.slice_w)?;
-                core.forward_t(&slice)
-            })
-            .collect::<Result<_>>()?;
-        let refs: Vec<&Tensor> = summaries.iter().collect();
-        let merged = Tensor::cat(&refs, 1)?; // (batch, n_zones * d_out)
-        self.head.forward(&merged)
+        let (summaries, scores) = self.cores_forward(x)?;
+        let weights = crate::merge_train::soft_weights(&scores, self.tau)?;
+        let composed = crate::merge_train::compose(&weights, &summaries)?; // (b, d_out)
+        self.head.forward(&composed)
+    }
+
+    /// The per-zone scores `(batch, n_zones)` for an input — the signal the
+    /// canonical `prune_and_reweight` hardens at inference. Zones are in
+    /// [`Self::zones`] order.
+    pub fn zone_scores(&self, x: &Tensor) -> Result<Tensor> {
+        Ok(self.cores_forward(x)?.1)
+    }
+
+    /// The zones in this pass, in the order scores/summaries are emitted.
+    pub fn zones(&self) -> Vec<ZoneId> {
+        self.cores.iter().map(|(z, _)| *z).collect()
+    }
+
+    /// Set the soft-merge temperature (annealing toward the hard decision).
+    pub fn set_tau(&mut self, tau: f64) {
+        self.tau = tau;
     }
 
     /// Train to fit `(x, y)` for `steps` of AdamW, returning `(initial, final)` MSE.
@@ -361,6 +406,7 @@ mod tests {
             d_model: 8,
             d_out: 8,
             out_dim: 4,
+            tau: 1.0,
             seed: 2026,
         }
     }
@@ -373,6 +419,7 @@ mod tests {
             d_model: 8,
             d_out: 8,
             out_dim: 4,
+            tau: 1.0,
             seed: 7,
         }
     }
@@ -431,6 +478,46 @@ mod tests {
             final_loss < initial * 0.5,
             "loss barely moved: {initial} -> {final_loss}"
         );
+    }
+
+    #[test]
+    fn spine_scores_harden_to_the_canonical_decision() {
+        // End-to-end reconciliation (ADR-0006): hardening the spine's own per-zone
+        // scores reproduces what `prune_and_reweight` would record — the training
+        // merge and the inference decision agree on which zones survive.
+        use nat_provenance::prune_and_reweight;
+        use nat_types::Q16;
+        let cfg = cfg_3zone();
+        let pass = TrainableZonePass::new(&cfg).unwrap();
+        let zones = pass.zones();
+        let (x, _) = synth(4, cfg.in_dim, cfg.out_dim, pass.device());
+        let scores = pass.zone_scores(&x).unwrap(); // (batch, n_zones)
+        let rows = scores.to_vec2::<f32>().unwrap();
+        for thr in [0.0f32, 0.5] {
+            for row in &rows {
+                let scored: Vec<(nat_types::ZoneId, Q16)> = zones
+                    .iter()
+                    .zip(row.iter())
+                    .map(|(&z, &s)| (z, Q16::from_f32(s)))
+                    .collect();
+                let decision = prune_and_reweight(&scored, Q16::from_f32(thr));
+                let w = crate::merge_train::soft_weights(
+                    &Tensor::from_vec(row.clone(), (1, row.len()), pass.device()).unwrap(),
+                    cfg.tau,
+                )
+                .unwrap()
+                .flatten_all()
+                .unwrap()
+                .to_vec1::<f32>()
+                .unwrap();
+                let hardened: Vec<nat_types::ZoneId> =
+                    crate::merge_train::argtopk(&w, decision.survivors.len())
+                        .iter()
+                        .map(|&i| zones[i])
+                        .collect();
+                assert_eq!(hardened, decision.survivors);
+            }
+        }
     }
 
     #[test]
