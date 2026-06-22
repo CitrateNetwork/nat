@@ -7,10 +7,17 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 publish.workspace = true
-description = "The H-01 ablation harness: zone-partitioned vs equal-param dense baseline under the ADR-0005 protocol. The bet-decider, GPU-free now and scalable on the DGX."
+description = "The H-01 ablation harness: zone-partitioned vs equal-param dense baseline under the ADR-0005 protocol. The bet-decider — GPU-capable (--features cuda), multi-seed averaged, reproducible."
 
 [dependencies]
 nat-train.workspace = true
+nat-candle.workspace = true
 candle-core = "0.8"
 candle-nn = "0.8"
 thiserror.workspace = true
+
+[features]
+# Run the ablation on the GPU (the DGX bet-deciding scale). Forwards to
+# nat-candle's cuda feature so device selection stays a single source of truth.
+# Off by default: the standard build + CI run the harness on CPU.
+cuda = ["nat-candle/cuda", "candle-core/cuda", "candle-nn/cuda"]
