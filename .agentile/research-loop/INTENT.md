@@ -48,6 +48,15 @@ H-01/H-02 read updates the next day's intent.
 
 > Append a block per day. Newest at the top.
 
+### 2026-06-22 — mini-batch loop (WP-D10) — corpus now exploited
+- `NatTrainModel::train_minibatched` (seeded shuffle + `index_select` batches). The
+  loop now consumes **160K train windows** of the 1.12M-token corpus (was a fixed
+  24K-window full-batch slice).
+- Result (GPU): held-out **4.02 bits/byte, monotonically improving across 8 epochs,
+  no overfit** (4.21→4.13→…→4.017). The full-batch slice had overfit (2.95→3.04).
+- **The data is now used.** Bottleneck cleared. Next data lever: more volume +
+  WP-D6 (re-run the conclusive H-01/H-02 on real data with this loop).
+
 ### 2026-06-22 — values-spine PD fetch (Claude, manual; pre-Hermes)
 - **Sourced** (PD, `scripts/fetch-values-spine.sh`): Russell ×3 (Problems of
   Philosophy, Intro to Math Philosophy, Analysis of Mind), Strunk (Elements of

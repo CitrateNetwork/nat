@@ -47,7 +47,7 @@ contradicted) — training on it aligns the model with the architecture's own st
 | WP-D7 | **Per-position autoregressive LM** (architecture) | causal per-position next-token heads; full LM loss | planned (out of DATA-S1 if it grows) |
 | WP-D8 | **Code-aware NORMALIZE** | preserve newlines/indentation so code structure survives the pipeline (CX zone) | planned |
 | WP-D9 | **`from-text`/`from-markdown`/`from-pdf` connector** | ingest CC text (SICP CC-BY-SA, Rust Book) + PDF/LaTeX-only PD (Boole, Tractatus) | planned |
-| WP-D10 | **Mini-batch SGD over the full corpus** | the loop samples shuffled mini-batches from all shards, not a fixed 30K-window full-batch slice — so the ~1M-token corpus is actually used | planned (NOW the bottleneck) |
+| WP-D10 | **Mini-batch SGD over the full corpus** | the loop samples shuffled mini-batches from all shards, not a fixed 30K-window full-batch slice — so the ~1M-token corpus is actually used | ✅ **done** — `NatTrainModel::train_minibatched` (seeded Fisher-Yates shuffle, `index_select` batches). On the 1.12M-token corpus: 160K train windows, held-out **4.02 bits/byte monotonically improving across 8 epochs, no overfit** (vs the full-batch slice's 2.95→3.04 climb). |
 
 **Values-spine corpus built (2026-06-22):** `scripts/fetch-values-spine.sh` →
 **1,120,711 tokens / 779 shards / quality 0.852 / 0 quarantined** (Russell ×3, Strunk,
