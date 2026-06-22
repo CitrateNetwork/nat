@@ -60,6 +60,19 @@ pub fn seed_windows(seq_len: usize, max_windows: usize, dev: &Device) -> Result<
     next_byte_windows(&out.shards, seq_len, max_windows, dev)
 }
 
+/// Build windows from a persisted corpus directory (as written by the `nat-corpus`
+/// CLI): `<root>/<config_hash>/`. This is how training consumes a corpus Hermes
+/// produced — `nat-corpus run … --out <root>` then point here at the config dir.
+pub fn windows_from_dir(
+    dir: &std::path::Path,
+    seq_len: usize,
+    max_windows: usize,
+    dev: &Device,
+) -> Result<(Tensor, Tensor)> {
+    let shards = nat_data::persist::read_shards(dir).map_err(candle_core::Error::wrap)?;
+    next_byte_windows(&shards, seq_len, max_windows, dev)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,5 +88,21 @@ mod tests {
         // All ids are valid byte tokens.
         let flat = ids.flatten_all().unwrap().to_vec1::<u32>().unwrap();
         assert!(flat.iter().all(|&t| (t as usize) < tokenizer::BYTE_VOCAB));
+    }
+
+    #[test]
+    fn windows_load_from_a_persisted_corpus_dir() {
+        // The CLI path: pipeline → persist → load windows from disk.
+        let dev = Device::Cpu;
+        let out = nat_data::run_pipeline(
+            nat_data::seed::seed_corpus(),
+            &nat_data::PipelineConfig::default(),
+        );
+        let root = std::env::temp_dir().join("nat_corpus_loader_test");
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = nat_data::persist::write_corpus(&root, &out).unwrap();
+        let (ids, _t) = windows_from_dir(&dir, 24, 300, &dev).unwrap();
+        assert!(ids.dims2().unwrap().0 > 0);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
