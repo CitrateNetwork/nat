@@ -90,6 +90,43 @@ impl NatTrainConfig {
         }
     }
 
+    /// A byte-LM config builder for the scale ladder (toward L2). `d_model = d_out =
+    /// d_emb`; requires `seq_len % zones.len() == 0` (so each zone reads
+    /// `seq_len / n_zones` tokens). Widen `zones` to all five (SM/CB/HP/PF/CX) to
+    /// bring the SSM zones in (ADR-0008, once the data earns it — it now has).
+    pub fn byte_lm(
+        zones: Vec<ZoneId>,
+        seq_len: usize,
+        d_emb: usize,
+        hidden: usize,
+        seed: u64,
+    ) -> Self {
+        NatTrainConfig {
+            zones,
+            vocab: nat_data::tokenizer::BYTE_VOCAB,
+            seq_len,
+            d_emb,
+            d_model: d_emb,
+            d_out: d_emb,
+            n_classes: nat_data::tokenizer::BYTE_VOCAB,
+            hidden,
+            tau: 1.0,
+            seed,
+            data_quality: 0.9,
+            compute_per_token: 0.01,
+        }
+    }
+
+    /// Scale-ladder rung M — 3-zone, ~4× the small dims.
+    pub fn byte_lm_medium() -> Self {
+        Self::byte_lm(vec![ZoneId::HP, ZoneId::PF, ZoneId::CX], 24, 48, 64, 2026)
+    }
+
+    /// Scale-ladder rung L — all five zones (adds the SM/CB SSM zones), wider still.
+    pub fn byte_lm_large() -> Self {
+        Self::byte_lm(ZoneId::LEARNED.to_vec(), 30, 64, 96, 2026)
+    }
+
     fn in_dim(&self) -> usize {
         self.seq_len * self.d_emb
     }
@@ -439,6 +476,39 @@ mod tests {
         );
         let per_epoch = 120_usize.div_ceil(bs);
         assert_eq!(contribs.len(), epochs * per_epoch);
+    }
+
+    #[test]
+    fn scale_ladder_configs_construct_and_run() {
+        // M (3-zone) and L (5-zone, incl. the SM/CB SSM zones) must satisfy the
+        // divisibility constraints and forward cleanly — and L must be bigger.
+        for cfg in [
+            NatTrainConfig::byte_lm_medium(),
+            NatTrainConfig::byte_lm_large(),
+        ] {
+            let model = NatTrainModel::new(&cfg).unwrap();
+            // a dummy batch of valid byte ids
+            let ids = Tensor::from_vec(
+                (0..(4 * cfg.seq_len) as u32)
+                    .map(|i| i % 256)
+                    .collect::<Vec<_>>(),
+                (4, cfg.seq_len),
+                model.device(),
+            )
+            .unwrap();
+            let out = model.forward(&ids).unwrap();
+            assert_eq!(out.dims2().unwrap(), (4, cfg.n_classes));
+            assert!(model.param_count() > 0);
+        }
+        assert!(
+            NatTrainModel::new(&NatTrainConfig::byte_lm_large())
+                .unwrap()
+                .param_count()
+                > NatTrainModel::new(&NatTrainConfig::byte_lm_3zone())
+                    .unwrap()
+                    .param_count(),
+            "L should be larger than S"
+        );
     }
 
     #[test]
