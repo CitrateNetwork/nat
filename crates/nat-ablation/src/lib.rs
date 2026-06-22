@@ -17,6 +17,7 @@
 //!    on the DGX cannot silently measure toys.
 
 mod models;
+pub mod real;
 
 pub use models::{
     dense_params, partitioned_params, synthetic_data, AblationArm, DenseArm, PartitionedArm,
