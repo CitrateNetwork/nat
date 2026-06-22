@@ -14,11 +14,13 @@
 //! `run` flags: --input <jsonl> --out <root> [--shard-size N] [--min-quality F]
 //!              [--min-len N] [--max-len N] [--near-dup F] [--seed N]
 
-use nat_data::{jsonl, persist, run_pipeline, PipelineConfig, QuarantineReason};
+use nat_data::{gutenberg, jsonl, persist, run_pipeline, PipelineConfig, QuarantineReason};
 use nat_types::Q16;
 use std::collections::BTreeMap;
+use std::io::Read;
 use std::path::Path;
 use std::process::exit;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -26,6 +28,7 @@ fn main() {
     let code = match args.get(1).map(String::as_str) {
         Some("run") => cmd_run(rest),
         Some("emit-seed") => cmd_emit_seed(rest),
+        Some("from-gutenberg") => cmd_from_gutenberg(rest),
         Some("--help") | Some("-h") | None => {
             usage();
             0
@@ -44,27 +47,53 @@ fn usage() {
         "nat-corpus — NAT data pipeline runner (HERMES-S1)\n\n\
          USAGE:\n  \
            nat-corpus run --input <jsonl> --out <corpus-root> [config flags]\n  \
-           nat-corpus emit-seed --out <file.jsonl>\n\n\
+           nat-corpus emit-seed --out <file.jsonl>\n  \
+           nat-corpus from-gutenberg --id <N> [--input <file|->] [--out <jsonl|->] [--append] [--target-chars N]\n\n\
          run config flags (defaults from PipelineConfig::default):\n  \
            --shard-size N   --min-quality F   --min-len N   --max-len N\n  \
            --near-dup F     --seed N\n"
     );
 }
 
-/// Collect `--key value` pairs.
+/// Collect flags. `--key value` → (key, value); a bare `--key` followed by another
+/// flag (or nothing) → (key, "true"), so boolean flags like `--append` work.
 fn flags(args: &[String]) -> BTreeMap<String, String> {
     let mut m = BTreeMap::new();
     let mut i = 0;
     while i < args.len() {
         if let Some(key) = args[i].strip_prefix("--") {
-            let val = args.get(i + 1).cloned().unwrap_or_default();
-            m.insert(key.to_string(), val);
-            i += 2;
+            let next_is_flag = args.get(i + 1).map(|n| n.starts_with("--")).unwrap_or(true);
+            if next_is_flag {
+                m.insert(key.to_string(), "true".to_string());
+                i += 1;
+            } else {
+                m.insert(key.to_string(), args[i + 1].clone());
+                i += 2;
+            }
         } else {
             i += 1;
         }
     }
     m
+}
+
+/// Today's date as `YYYY-MM-DD` (UTC), dependency-free (Hinnant's civil-from-days).
+fn today() -> String {
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let z = (secs / 86400) as i64 + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = y + if m <= 2 { 1 } else { 0 };
+    format!("{y:04}-{m:02}-{d:02}")
 }
 
 fn require<'a>(f: &'a BTreeMap<String, String>, key: &str) -> &'a str {
@@ -98,6 +127,82 @@ fn cmd_emit_seed(args: &[String]) -> i32 {
         }
         Err(e) => {
             eprintln!("nat-corpus: failed to write {out}: {e}");
+            1
+        }
+    }
+}
+
+fn cmd_from_gutenberg(args: &[String]) -> i32 {
+    let f = flags(args);
+    let id: u32 = match require(&f, "id").parse() {
+        Ok(v) => v,
+        Err(_) => {
+            eprintln!("nat-corpus: --id must be a number");
+            return 2;
+        }
+    };
+    let target_chars: usize = f
+        .get("target-chars")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1500);
+    let fetch_date = f.get("fetch-date").cloned().unwrap_or_else(today);
+
+    // Read the downloaded book text from --input (a file) or stdin.
+    let text = match f.get("input").map(String::as_str) {
+        Some(p) if p != "-" => match std::fs::read_to_string(p) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("nat-corpus: reading {p}: {e}");
+                return 1;
+            }
+        },
+        _ => {
+            let mut s = String::new();
+            if let Err(e) = std::io::stdin().read_to_string(&mut s) {
+                eprintln!("nat-corpus: reading stdin: {e}");
+                return 1;
+            }
+            s
+        }
+    };
+
+    let docs = gutenberg::to_rawdocs(id, &fetch_date, &text, target_chars);
+    if docs.is_empty() {
+        eprintln!("nat-corpus: produced 0 docs from book {id} (empty after stripping?)");
+        return 1;
+    }
+
+    let out = f.get("out").map(String::as_str).unwrap_or("-");
+    let append = f.contains_key("append");
+    let res = if out == "-" {
+        jsonl::write_rawdocs(std::io::stdout().lock(), &docs)
+    } else {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(append)
+            .write(true)
+            .truncate(!append)
+            .open(out);
+        match file {
+            Ok(file) => jsonl::write_rawdocs(std::io::BufWriter::new(file), &docs),
+            Err(e) => {
+                eprintln!("nat-corpus: opening {out}: {e}");
+                return 1;
+            }
+        }
+    };
+    match res {
+        Ok(()) => {
+            eprintln!(
+                "from-gutenberg {id}: {} passages -> {} ({}append)",
+                docs.len(),
+                out,
+                if append { "" } else { "over" }
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("nat-corpus: writing {out}: {e}");
             1
         }
     }
