@@ -48,6 +48,23 @@ H-01/H-02 read updates the next day's intent.
 
 > Append a block per day. Newest at the top.
 
+### 2026-06-22 — values-spine PD fetch (Claude, manual; pre-Hermes)
+- **Sourced** (PD, `scripts/fetch-values-spine.sh`): Russell ×3 (Problems of
+  Philosophy, Intro to Math Philosophy, Analysis of Mind), Strunk (Elements of
+  Style), Whitman (Leaves of Grass), Carroll (Alice), Montaigne (Essays — 1058
+  passages), Emerson, Aesop, Austen + the 17 CC0 explainers.
+- **Refined** → **1,120,711 tokens**, 779 shards, quality 0.852, **0 quarantined**.
+- **Couldn't get cleanly**: Boole *Laws of Thought* (15114) + Wittgenstein
+  *Tractatus* (5740) are **PDF / page-image / LaTeX only** on Gutenberg (no text/HTML)
+  → need a `from-pdf` connector (DATA-S1 WP-D9). Russell IMP (41654) recovered via
+  HTML-strip.
+- **Trained** (GPU): best held-out **4.26 bits/byte** — BUT the loop only consumed a
+  30K-window slice (full-batch), so it mildly overfit that slice rather than using
+  the full 1.12M tokens. **The bottleneck has shifted from data to the training
+  loop**: it needs mini-batch SGD over shuffled windows (DATA-S1 WP-D10) to exploit
+  the corpus.
+- **Next**: WP-D10 (mini-batch the full corpus) → then the corpus's value shows.
+
 ### 2026-06-22 — the values spine (owner)
 - Add **Wittgenstein on private language + rule-following** — critical for the model
   to grasp rulemaking *without* a community or spirit behind the rule (it can't be

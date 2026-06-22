@@ -46,7 +46,15 @@ contradicted) — training on it aligns the model with the architecture's own st
 | WP-D6 | **Scale corpus → decisive H-01/H-02** | ≥ N tokens across the 4 zones; re-run conclusive ablation + held-out H-02 on real data | planned (gated on Hermes volume) |
 | WP-D7 | **Per-position autoregressive LM** (architecture) | causal per-position next-token heads; full LM loss | planned (out of DATA-S1 if it grows) |
 | WP-D8 | **Code-aware NORMALIZE** | preserve newlines/indentation so code structure survives the pipeline (CX zone) | planned |
-| WP-D9 | **`from-text`/`from-markdown` connector** | ingest CC text (SICP CC-BY-SA, the Rust Book MIT/Apache) | planned |
+| WP-D9 | **`from-text`/`from-markdown`/`from-pdf` connector** | ingest CC text (SICP CC-BY-SA, Rust Book) + PDF/LaTeX-only PD (Boole, Tractatus) | planned |
+| WP-D10 | **Mini-batch SGD over the full corpus** | the loop samples shuffled mini-batches from all shards, not a fixed 30K-window full-batch slice — so the ~1M-token corpus is actually used | planned (NOW the bottleneck) |
+
+**Values-spine corpus built (2026-06-22):** `scripts/fetch-values-spine.sh` →
+**1,120,711 tokens / 779 shards / quality 0.852 / 0 quarantined** (Russell ×3, Strunk,
+Whitman, Carroll, Montaigne, Emerson, Aesop, Austen + 17 CC0 explainers). Boole +
+Tractatus are PDF/TeX-only on Gutenberg (→ WP-D9). First train consumed only a 30K-window
+slice (full-batch) → 4.26 bits/byte best, mild overfit on the slice — **WP-D10 is now the
+gate to exploiting the corpus.**
 
 **Values spine (owner intent 2026-06-22):** beyond the domain table, the corpus
 targets a curated set — Wittgenstein (rule-following / private language → "the rules
