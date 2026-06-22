@@ -30,7 +30,9 @@ use nat_types::ZoneId;
 /// as they are wide. Tunable; the real per-task threshold is set at L1.
 pub const DEFAULT_SEPARATION_THRESHOLD: f32 = 1.0;
 
-const LEARNED_DIM: usize = 5; // SM, CB, HP, PF, CX — excludes the always-on MX
+/// Dimensionality of a routing vector: the five learned zones (SM, CB, HP, PF,
+/// CX), excluding the always-on MX harness.
+pub const LEARNED_DIM: usize = 5;
 
 /// One class's routing summary.
 #[derive(Debug, Clone)]
@@ -130,6 +132,44 @@ fn centroid(vecs: &[[f32; LEARNED_DIM]]) -> [f32; LEARNED_DIM] {
         *x /= vecs.len() as f32;
     }
     c
+}
+
+/// The separation ratio (between-class / within-class) over per-class sets of
+/// routing vectors. Public so any activation source — the L0 model *or a trained
+/// L1 router* — is scored by the **same** metric; that identical-yardstick
+/// comparison is the H-02 test (does a trained router differentiate better?).
+pub fn separation_ratio(class_vectors: &[Vec<[f32; LEARNED_DIM]>]) -> f32 {
+    let centroids: Vec<[f32; LEARNED_DIM]> = class_vectors.iter().map(|v| centroid(v)).collect();
+
+    let within_terms: Vec<f32> = class_vectors
+        .iter()
+        .zip(centroids.iter())
+        .map(|(vecs, c)| {
+            if vecs.is_empty() {
+                0.0
+            } else {
+                vecs.iter().map(|v| distance(v, c)).sum::<f32>() / vecs.len() as f32
+            }
+        })
+        .collect();
+
+    let mut pair_dists = Vec::new();
+    for i in 0..centroids.len() {
+        for j in (i + 1)..centroids.len() {
+            pair_dists.push(distance(&centroids[i], &centroids[j]));
+        }
+    }
+    let between = if pair_dists.is_empty() {
+        0.0
+    } else {
+        pair_dists.iter().sum::<f32>() / pair_dists.len() as f32
+    };
+    let within = if within_terms.is_empty() {
+        0.0
+    } else {
+        within_terms.iter().sum::<f32>() / within_terms.len() as f32
+    };
+    between / (within + 1e-6)
 }
 
 /// Evaluate routing differentiation over a labeled battery (H-02). Deterministic:

@@ -13,3 +13,11 @@ description = "The NAT eval harness: routing differentiation (H-02), provenance 
 nat-core.workspace = true
 nat-provenance.workspace = true
 nat-types.workspace = true
+
+[dev-dependencies]
+# The H-02 test trains the L1 learned router and scores it by the same metric as
+# the L0 model. nat-candle (not nat-eval) owns the trainable router; no cycle —
+# nat-candle does not depend on nat-eval.
+nat-candle.workspace = true
+nat-sidecar.workspace = true
+candle-core = "0.8"

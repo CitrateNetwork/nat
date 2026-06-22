@@ -17,6 +17,7 @@ pub mod cores;
 pub mod device;
 pub mod factory;
 pub mod merge_train;
+pub mod router;
 pub mod seed;
 pub mod train;
 pub mod trainable;
