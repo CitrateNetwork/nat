@@ -11,20 +11,36 @@
 //! same synthetic-but-structured classification task; we report capability per
 //! parameter and the seed-averaged verdict.
 //!
-//! Honest scope: the task is the WP-4 synthetic one (binned token-sum), so this is
-//! the conclusive *harness* with the real model — the final word needs real-corpus
-//! data (DGX_HANDOFF §5.3). If partitioned < dense at equal params, H-01 is
-//! refuted; the harness reports it either way.
+//! Two entry points:
+//! - [`run_real_ablation`] / [`run_real_ablation_seeds`] — the synthetic task
+//!   (WP-5), full-batch; a fast harness read.
+//! - [`run_real_corpus_ablation`] / [`run_real_corpus_ablation_seeds`] — the
+//!   **conclusive H-01 on real corpus data** (WP-D6): both arms mini-batch-trained
+//!   on real next-byte windows, capability measured on a held-out split.
+//!
+//! Honest posture: if partitioned < dense at equal params, H-01 is refuted; the
+//! harness reports it either way. (Real-data result 2026-06-22: HOLDS, 5/5 seeds,
+//! at the small byte-LM 3-zone scale — see `gates.yaml` g3-h01.)
 
 use crate::AblationError;
 use candle_core::{DType, Device, Tensor, Var, D};
 use candle_nn::optim::{AdamW, ParamsAdamW};
 use candle_nn::{loss, Linear, Module, Optimizer, VarBuilder, VarMap};
-use nat_candle::seed::{name_seed, seeded_linear, seeded_uniform};
+use nat_candle::seed::{name_seed, seeded_linear, seeded_uniform, SplitMix64};
 use nat_candle::train_loop::{synthetic_task, NatTrainConfig, NatTrainModel};
 
 fn candle_err(e: candle_core::Error) -> AblationError {
     AblationError::Candle(e.to_string())
+}
+
+/// Deterministic in-place Fisher-Yates shuffle (matches `nat_candle`'s, so both
+/// arms see the same batch order under the same seed — ADR-0005 "same data order").
+fn shuffle(perm: &mut [u32], seed: u64) {
+    let mut rng = SplitMix64::new(seed);
+    for i in (1..perm.len()).rev() {
+        let j = (rng.next_u64() % (i as u64 + 1)) as usize;
+        perm.swap(i, j);
+    }
 }
 
 /// Analytic parameter count of the dense baseline (embedding + one attention
@@ -175,6 +191,52 @@ impl DenseTransformerArm {
         }
         let _ = self.seq_len; // shape is taken from ids; seq_len kept for clarity
         Ok((initial, final_loss))
+    }
+
+    /// Cross-entropy on `(ids, targets)` — held-out evaluation.
+    pub fn loss_on(&self, ids: &Tensor, targets: &Tensor) -> candle_core::Result<f32> {
+        loss::cross_entropy(&self.forward(ids)?, targets)?.to_scalar::<f32>()
+    }
+
+    /// Mini-batch SGD over shuffled windows — the same protocol the NAT arm uses,
+    /// so the comparison trains both arms identically on the real corpus (ADR-0005).
+    pub fn train_minibatched(
+        &mut self,
+        ids: &Tensor,
+        targets: &Tensor,
+        epochs: usize,
+        batch_size: usize,
+        lr: f64,
+        shuffle_seed: u64,
+    ) -> candle_core::Result<()> {
+        let dev = ids.device().clone();
+        let n = ids.dims2()?.0;
+        let bs = batch_size.clamp(1, n.max(1));
+        let mut opt = AdamW::new(
+            self.varmap.all_vars(),
+            ParamsAdamW {
+                lr,
+                ..Default::default()
+            },
+        )?;
+        let mut perm: Vec<u32> = (0..n as u32).collect();
+        for epoch in 0..epochs {
+            shuffle(
+                &mut perm,
+                shuffle_seed ^ (epoch as u64).wrapping_mul(0x9E37_79B9),
+            );
+            let mut start = 0;
+            while start < n {
+                let end = (start + bs).min(n);
+                let idx = Tensor::from_vec(perm[start..end].to_vec(), (end - start,), &dev)?;
+                let xb = ids.index_select(&idx, 0)?;
+                let yb = targets.index_select(&idx, 0)?;
+                let l = loss::cross_entropy(&self.forward(&xb)?, &yb)?;
+                opt.backward_step(&l)?;
+                start = end;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -358,6 +420,139 @@ pub fn run_real_ablation_seeds(
     let mut per_seed = Vec::with_capacity(seeds.len());
     for &s in seeds {
         per_seed.push(run_real_ablation(cfg, s)?);
+    }
+    let n = per_seed.len() as f64;
+    let mean_nat = per_seed
+        .iter()
+        .map(|r| r.nat_capability_per_param)
+        .sum::<f64>()
+        / n;
+    let mean_dense = per_seed
+        .iter()
+        .map(|r| r.dense_capability_per_param)
+        .sum::<f64>()
+        / n;
+    let holds_fraction = per_seed.iter().filter(|r| r.h01_holds).count() as f64 / n;
+    Ok(RealMultiSeedReport {
+        backend: per_seed[0].backend.clone(),
+        seeds: seeds.to_vec(),
+        nat_params: per_seed[0].nat_params,
+        dense_params: per_seed[0].dense_params,
+        mean_nat_capability_per_param: mean_nat,
+        mean_dense_capability_per_param: mean_dense,
+        h01_holds_on_mean: mean_nat >= mean_dense * 0.95,
+        holds_fraction,
+        per_seed,
+    })
+}
+
+/// The **conclusive H-01 on real data** (DATA-S1 WP-D6): the real `NatTrainModel`
+/// vs an equal-param dense transformer, both trained by **mini-batch** on the real
+/// corpus (next-byte LM), capability measured on a held-out split. Same windows,
+/// epochs, batch size, lr, and shuffle seed for both arms (ADR-0005).
+#[allow(clippy::too_many_arguments)]
+pub fn run_real_corpus_ablation(
+    corpus_dir: &std::path::Path,
+    epochs: usize,
+    batch_size: usize,
+    lr: f64,
+    max_windows: usize,
+    param_tolerance: f64,
+    seed: u64,
+) -> Result<RealAblationReport, AblationError> {
+    let dev = nat_candle::device::device();
+
+    let mut nat_cfg = NatTrainConfig::byte_lm_3zone();
+    nat_cfg.seed = seed;
+    let mut nat = NatTrainModel::new(&nat_cfg).map_err(candle_err)?;
+    let backend = nat.backend().to_string();
+    crate::guard_not_toy(!backend.starts_with("candle-"))?;
+    let nat_params = nat.param_count();
+
+    let d_ff = match_dense_ff(nat_cfg.vocab, nat_cfg.d_emb, nat_cfg.n_classes, nat_params);
+    let dense_params =
+        dense_transformer_params(nat_cfg.vocab, nat_cfg.d_emb, d_ff, nat_cfg.n_classes);
+    let rel = (dense_params.abs_diff(nat_params) as f64) / (nat_params as f64);
+    if rel > param_tolerance {
+        return Err(AblationError::ParamsMismatch {
+            dense: dense_params,
+            partitioned: nat_params,
+            tolerance: param_tolerance,
+        });
+    }
+    let mut dense = DenseTransformerArm::new(
+        nat_cfg.vocab,
+        nat_cfg.seq_len,
+        nat_cfg.d_emb,
+        d_ff,
+        nat_cfg.n_classes,
+        seed,
+        &dev,
+    )
+    .map_err(candle_err)?;
+
+    // Real next-byte windows from the corpus, split train / held-out.
+    let (ids, targets) =
+        nat_candle::corpus::windows_from_dir(corpus_dir, nat_cfg.seq_len, max_windows, &dev)
+            .map_err(candle_err)?;
+    let n = ids.dims2().map_err(candle_err)?.0;
+    let n_tr = n * 4 / 5;
+    let xtr = ids.narrow(0, 0, n_tr).map_err(candle_err)?;
+    let ytr = targets.narrow(0, 0, n_tr).map_err(candle_err)?;
+    let xva = ids.narrow(0, n_tr, n - n_tr).map_err(candle_err)?;
+    let yva = targets.narrow(0, n_tr, n - n_tr).map_err(candle_err)?;
+
+    // Train both arms identically (ADR-0005): same windows, epochs, batch, lr, seed.
+    nat.train_minibatched(&xtr, &ytr, epochs, batch_size, lr, seed)
+        .map_err(candle_err)?;
+    dense
+        .train_minibatched(&xtr, &ytr, epochs, batch_size, lr, seed)
+        .map_err(candle_err)?;
+
+    // Capability = 1 / held-out cross-entropy (generalization), per parameter.
+    let nat_val = nat.loss_on(&xva, &yva).map_err(candle_err)?;
+    let dense_val = dense.loss_on(&xva, &yva).map_err(candle_err)?;
+    let nat_cpp = cap(nat_val) / nat_params as f64;
+    let dense_cpp = cap(dense_val) / dense_params as f64;
+
+    Ok(RealAblationReport {
+        backend,
+        nat_params,
+        dense_params,
+        param_rel_diff: rel,
+        nat_final_loss: nat_val,
+        dense_final_loss: dense_val,
+        nat_capability_per_param: nat_cpp,
+        dense_capability_per_param: dense_cpp,
+        h01_holds: nat_cpp >= dense_cpp * 0.95,
+    })
+}
+
+/// The seed-averaged conclusive H-01 on real data.
+#[allow(clippy::too_many_arguments)]
+pub fn run_real_corpus_ablation_seeds(
+    corpus_dir: &std::path::Path,
+    epochs: usize,
+    batch_size: usize,
+    lr: f64,
+    max_windows: usize,
+    param_tolerance: f64,
+    seeds: &[u64],
+) -> Result<RealMultiSeedReport, AblationError> {
+    if seeds.is_empty() {
+        return Err(AblationError::NoSeeds);
+    }
+    let mut per_seed = Vec::with_capacity(seeds.len());
+    for &s in seeds {
+        per_seed.push(run_real_corpus_ablation(
+            corpus_dir,
+            epochs,
+            batch_size,
+            lr,
+            max_windows,
+            param_tolerance,
+            s,
+        )?);
     }
     let n = per_seed.len() as f64;
     let mean_nat = per_seed

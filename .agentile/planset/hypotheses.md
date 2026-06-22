@@ -4,13 +4,14 @@ Every capability or design claim that is not yet proven (Research Method §6).
 Format: `H-id | statement | status: open|supported|refuted | evidence`.
 
 - **H-01** | Zone partitioning does not reduce capability per parameter versus a
-  dense baseline of equal size. | **open (L1 marginal-hold, not decisive)** | *the
-  load-bearing bet.* NAT-S2 WP-5 runs the conclusive harness — the real
-  `NatTrainModel` vs an equal-param dense transformer (3882=3882), multi-seed, on
-  the GB10 (`nat-ablation::real`). First read: HOLDS on the mean (nat 4.37 ≥ dense
-  3.88 cap/param) but only **3/5 seeds** — marginal, on the synthetic binned-sum
-  task. Not decisive; real-corpus data at larger scale is the final word. Honest
-  posture: if a scaled real-data run refutes it, change course.
+  dense baseline of equal size. | **supported (real-data L1, 5/5 seeds)** | *the
+  load-bearing bet.* DATA-S1 WP-D6: the real `NatTrainModel` vs an equal-param dense
+  transformer (20718≈20701), both **mini-batch-trained on the 1.12M-token PD corpus**
+  (next-byte LM), capability on a **held-out** split, 5 seeds, GPU. **H-01 HOLDS,
+  5/5 seeds** — NAT held-out loss 2.88–2.91 < dense 2.97–2.99: partitioning *beats*
+  dense per parameter on real text. (The WP-5 synthetic read was a marginal 3/5;
+  real data is decisive.) Caveat: small byte-LM 3-zone scale (~20K params); L2 scale
+  is future. If a larger run refutes it, change course.
 
 - **H-02** | Context-aware routing produces measurably different zone mixes for
   different prompt classes. | **supported (in-sample at L1)** | NAT-S2 WP-3 — the

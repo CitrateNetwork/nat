@@ -43,7 +43,7 @@ contradicted) — training on it aligns the model with the architecture's own st
 | WP-D3 | **Corpus loader** → next-byte windows | well-formed `(ids, targets)`; valid byte IDs | ✅ done (`nat-candle::corpus`) |
 | WP-D4 | **Next-byte LM objective + first real run** | held-out byte loss beats uniform on real text | ✅ done — seed corpus: **4.18 bits/byte** best (vs 8.0); overfits ~4KB → needs volume |
 | WP-D5 | **BPE tokenizer + model-based quality** | learned vocab behind the same interface; perplexity/classifier quality gate (replaces L0 heuristic) | planned |
-| WP-D6 | **Scale corpus → decisive H-01/H-02** | ≥ N tokens across the 4 zones; re-run conclusive ablation + held-out H-02 on real data | planned (gated on Hermes volume) |
+| WP-D6 | **Scale corpus → decisive H-01/H-02** | ≥ N tokens across the 4 zones; re-run conclusive ablation + held-out H-02 on real data | ✅ **H-01 done** — `run_real_corpus_ablation` (both arms mini-batched on the 1.12M-token corpus, held-out cap/param). **H-01 HOLDS 5/5 seeds** (NAT loss 2.88–2.91 < dense 2.97–2.99 at equal params) — decisive vs the synthetic 3/5. Caveat: small byte-LM scale. H-02 held-out still to do. |
 | WP-D7 | **Per-position autoregressive LM** (architecture) | causal per-position next-token heads; full LM loss | planned (out of DATA-S1 if it grows) |
 | WP-D8 | **Code-aware NORMALIZE** | preserve newlines/indentation so code structure survives the pipeline (CX zone) | planned |
 | WP-D9 | **`from-text`/`from-markdown`/`from-pdf` connector** | ingest CC text (SICP CC-BY-SA, Rust Book) + PDF/LaTeX-only PD (Boole, Tractatus) | planned |
