@@ -129,6 +129,78 @@ pub fn seed_corpus() -> Vec<RawDoc> {
              peek looks at the top without removing it. A vector backs the stack \
              cleanly, since appending and removing from its end are both fast.",
         ),
+        // --- Rules, language, computation: the values spine (owner intent 2026-06-22) ---
+        // CC0 explainers of copyrighted ideas (we own the framing); the public-domain
+        // primary sources (Wittgenstein's Tractatus, Boole, Turing's papers as of
+        // life+70) are fetch targets in the research loop.
+        doc(
+            "wittgenstein-private-language",
+            "A private language would be one whose words referred to what only the \
+             speaker could know, his immediate private sensations, so that no one else \
+             could understand it. Wittgenstein argues that such a language is \
+             impossible. To mean something by a sign is to use it according to a rule, \
+             and a rule needs a criterion of correctness, a way to tell genuine use \
+             from merely seeming right. In a purely private case there is no such \
+             criterion: whatever is going to seem right to me is right, which only \
+             means that here we cannot speak of right at all. Meaning is not a private \
+             inner act but a public practice, answerable to a shared standard.",
+        ),
+        doc(
+            "wittgenstein-rule-following",
+            "A rule does not contain its own application. Any course of action can be \
+             brought into accord with a rule under some interpretation, so \
+             interpretation alone cannot fix what the rule requires. What fixes it is a \
+             practice. To obey a rule, to make a report, to give an order, to play a \
+             game of chess, are customs, uses, institutions. You cannot follow a rule \
+             privately or only once, for then there would be no difference between \
+             following it and thinking you are. Following a rule is mastering a \
+             technique, sustained by a community that agrees in its judgments. The \
+             agreement is not agreement in opinions but in form of life.",
+        ),
+        doc(
+            "form-of-life-and-the-room",
+            "Meaning lives in a form of life, the shared ways of acting, judging, and \
+             correcting that give signs their grip. The same holds for any room a maker \
+             enters. A codebase, a protocol, a community each has its conventions, and \
+             to act well is to follow the rules of that room rather than a private rule \
+             of one's own invention. A rule with no community and no spirit behind it \
+             is not yet a rule; it is a mark waiting for a practice. This is why a \
+             system that records its reasoning against a public standard can be trusted, \
+             while a private and unauditable one cannot.",
+        ),
+        doc(
+            "turing-machine",
+            "A Turing machine is a simple imagined device: a tape of cells, a head that \
+             reads and writes one symbol at a time, and a table of rules saying what to \
+             do in each state. Despite this simplicity it can carry out any procedure \
+             that could be called mechanical; this is the Church-Turing thesis. Turing \
+             also proved a limit. There is no general procedure that decides, for every \
+             program and input, whether that program will eventually halt. Some \
+             questions have no algorithm. Computation has both an inside and an edge, \
+             and knowing where the edge lies is part of knowing the craft.",
+        ),
+        doc(
+            "turing-test",
+            "Turing asked whether machines can think and replaced the vague question \
+             with a game. A judge converses by text with a human and a machine and \
+             tries to tell which is which; if the machine cannot reliably be told \
+             apart, Turing proposed that we grant it is, for the purpose, intelligent. \
+             The move is philosophical. It makes intelligence a matter of observable \
+             practice rather than of hidden essence, much as meaning is a matter of \
+             public use rather than private sensation. What a thing does in the open, \
+             answerable to others, is what we can know of its mind.",
+        ),
+        doc(
+            "code-as-rule-following",
+            "Good code follows the rules of the room it is written in. A new function \
+             should read like the code around it, the same names, the same idioms, the \
+             same density of comment, because a convention is a small form of life, \
+             sustained by a community of readers who must maintain it. Clarity is a \
+             social act: you write for the next person, against a public standard of \
+             what counts as readable. The best engineers are expressive within the \
+             rules rather than in spite of them; they make the shared language do new \
+             work without breaking the practice that gives it meaning.",
+        ),
     ]
 }
 
