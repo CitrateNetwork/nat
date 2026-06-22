@@ -14,7 +14,9 @@
 //! `run` flags: --input <jsonl> --out <root> [--shard-size N] [--min-quality F]
 //!              [--min-len N] [--max-len N] [--near-dup F] [--seed N]
 
-use nat_data::{code, gutenberg, jsonl, persist, run_pipeline, PipelineConfig, QuarantineReason};
+use nat_data::{
+    bpe, code, gutenberg, jsonl, persist, run_pipeline, PipelineConfig, QuarantineReason,
+};
 use nat_types::Q16;
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -30,6 +32,7 @@ fn main() {
         Some("emit-seed") => cmd_emit_seed(rest),
         Some("from-gutenberg") => cmd_from_gutenberg(rest),
         Some("from-code") => cmd_from_code(rest),
+        Some("train-bpe") => cmd_train_bpe(rest),
         Some("--help") | Some("-h") | None => {
             usage();
             0
@@ -50,7 +53,8 @@ fn usage() {
            nat-corpus run --input <jsonl> --out <corpus-root> [config flags]\n  \
            nat-corpus emit-seed --out <file.jsonl>\n  \
            nat-corpus from-gutenberg --id <N> [--input <file|->] [--out <jsonl|->] [--append] [--target-chars N]\n  \
-           nat-corpus from-code --dir <repo> --license <SPDX> [--source <name>] [--out <jsonl|->] [--append] [--target-chars N] [--max-line-len N]\n\n\
+           nat-corpus from-code --dir <repo> --license <SPDX> [--source <name>] [--out <jsonl|->] [--append] [--target-chars N] [--max-line-len N]\n  \
+           nat-corpus train-bpe --input <jsonl> --vocab <N> --out <bpe.json>\n\n\
          run config flags (defaults from PipelineConfig::default):\n  \
            --shard-size N   --min-quality F   --min-len N   --max-len N\n  \
            --near-dup F     --seed N\n"
@@ -316,6 +320,55 @@ fn cmd_from_code(args: &[String]) -> i32 {
             1
         }
     }
+}
+
+fn cmd_train_bpe(args: &[String]) -> i32 {
+    let f = flags(args);
+    let input = require(&f, "input").to_string();
+    let out = require(&f, "out").to_string();
+    let vocab: usize = match f.get("vocab").and_then(|v| v.parse().ok()) {
+        Some(v) if v >= 256 => v,
+        _ => {
+            eprintln!("nat-corpus: --vocab must be an integer >= 256");
+            return 2;
+        }
+    };
+
+    let docs = match jsonl::read_rawdocs_file(Path::new(&input)) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("nat-corpus: reading {input}: {e}");
+            return 1;
+        }
+    };
+    let texts: Vec<&str> = docs.iter().map(|d| d.text.as_str()).collect();
+    eprintln!(
+        "training BPE (target vocab {vocab}) on {} docs ...",
+        texts.len()
+    );
+    let bpe = bpe::Bpe::train(texts.iter().copied(), vocab);
+
+    // Compression report over the corpus: bytes/token.
+    let (mut bytes, mut tokens) = (0u64, 0u64);
+    for d in &docs {
+        bytes += d.text.len() as u64;
+        tokens += bpe.encode(&d.text).len() as u64;
+    }
+    let ratio = if tokens == 0 {
+        0.0
+    } else {
+        bytes as f64 / tokens as f64
+    };
+
+    if let Err(e) = bpe.save(Path::new(&out)) {
+        eprintln!("nat-corpus: writing {out}: {e}");
+        return 1;
+    }
+    println!(
+        "bpe: vocab {} -> {out} ; corpus {bytes} bytes / {tokens} tokens = {ratio:.2} bytes/token",
+        bpe.vocab_size()
+    );
+    0
 }
 
 fn cmd_run(args: &[String]) -> i32 {

@@ -105,6 +105,51 @@ pub fn sequences_from_dir(
     sequence_windows(&shards, seq_len, max_seqs, dev)
 }
 
+/// Sequence windows tokenized with a trained **BPE** (WP-D5): each row is a
+/// contiguous `seq_len`-token sequence. Token ids are in `[0, bpe.vocab_size())`;
+/// because BPE compresses, the same `seq_len` covers more text than byte windows.
+pub fn sequence_windows_bpe(
+    shards: &[Shard],
+    bpe: &nat_data::bpe::Bpe,
+    seq_len: usize,
+    max_seqs: usize,
+    dev: &Device,
+) -> Result<Tensor> {
+    let mut ids: Vec<u32> = Vec::new();
+    let mut n = 0usize;
+    'outer: for shard in shards {
+        for doc in &shard.docs {
+            let toks = bpe.encode(&doc.text);
+            for chunk in toks.chunks(seq_len) {
+                if chunk.len() < seq_len {
+                    continue;
+                }
+                ids.extend_from_slice(chunk);
+                n += 1;
+                if n >= max_seqs {
+                    break 'outer;
+                }
+            }
+        }
+    }
+    if n == 0 {
+        candle_core::bail!("no BPE sequences produced (docs shorter than seq_len {seq_len})");
+    }
+    Tensor::from_vec(ids, (n, seq_len), dev)
+}
+
+/// BPE sequence windows from a persisted corpus directory.
+pub fn sequences_from_dir_bpe(
+    dir: &std::path::Path,
+    bpe: &nat_data::bpe::Bpe,
+    seq_len: usize,
+    max_seqs: usize,
+    dev: &Device,
+) -> Result<Tensor> {
+    let shards = nat_data::persist::read_shards(dir).map_err(candle_core::Error::wrap)?;
+    sequence_windows_bpe(&shards, bpe, seq_len, max_seqs, dev)
+}
+
 /// Build windows from a persisted corpus directory (as written by the `nat-corpus`
 /// CLI): `<root>/<config_hash>/`. This is how training consumes a corpus Hermes
 /// produced — `nat-corpus run … --out <root>` then point here at the config dir.
