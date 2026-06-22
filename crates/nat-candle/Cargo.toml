@@ -13,6 +13,7 @@ description = "Candle-backed zone cores (CPU) implementing nat_core::cores::Zone
 nat-core.workspace = true
 nat-types.workspace = true
 nat-sidecar.workspace = true
+nat-train.workspace = true
 candle-core = "0.8"
 candle-nn = "0.8"
 

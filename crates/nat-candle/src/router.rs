@@ -38,17 +38,34 @@ pub struct LearnedRouter {
 }
 
 impl LearnedRouter {
+    /// The H-02 router: all five learned zones, class-signal features.
     pub fn new(sidecar: &Sidecar, hidden: usize, seed: u64) -> Result<Self> {
+        Self::with_zones(sidecar, &ZoneId::LEARNED, FEATURE_DIM, hidden, seed)
+    }
+
+    /// A router over a specific zone set and feature width — so the gate can align
+    /// to a zone subset (e.g. the 3-zone {HP,PF,CX}, ADR-0008) and read learned
+    /// features (e.g. a pooled embedding) instead of the L0 class signals. Edges
+    /// are the declared edges **among these zones** — still copied from the
+    /// sidecar, so the declared-edges invariant holds for any subset.
+    pub fn with_zones(
+        sidecar: &Sidecar,
+        zones: &[ZoneId],
+        feature_dim: usize,
+        hidden: usize,
+        seed: u64,
+    ) -> Result<Self> {
         let dev = crate::device::device();
         let varmap = VarMap::new();
         let vb = VarBuilder::from_varmap(&varmap, DType::F32, &dev);
-        let zones = ZoneId::LEARNED.to_vec();
-        let gate1 = seeded_linear(&varmap, &vb, "gate1", FEATURE_DIM, hidden, seed, &dev)?;
+        let zones = zones.to_vec();
+        let gate1 = seeded_linear(&varmap, &vb, "gate1", feature_dim, hidden, seed, &dev)?;
         let gate2 = seeded_linear(&varmap, &vb, "gate2", hidden, zones.len(), seed, &dev)?;
         let edges = sidecar
             .topology
             .edges
             .iter()
+            .filter(|e| zones.contains(&e.from) && zones.contains(&e.to))
             .map(|e| (e.from, e.to))
             .collect();
         Ok(LearnedRouter {
@@ -60,6 +77,16 @@ impl LearnedRouter {
             seed,
             device: dev,
         })
+    }
+
+    /// The router's parameter map (for the optimizer / checkpointing).
+    pub fn varmap(&self) -> &VarMap {
+        &self.varmap
+    }
+
+    /// Mutable parameter map (for loading a checkpoint).
+    pub fn varmap_mut(&mut self) -> &mut VarMap {
+        &mut self.varmap
     }
 
     /// Per-zone activations in `[0, 1]`: `sigmoid(gate2(relu(gate1(features))))`.
