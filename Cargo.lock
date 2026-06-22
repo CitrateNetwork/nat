@@ -666,6 +666,7 @@ version = "0.0.1"
 dependencies = [
  "candle-core",
  "candle-nn",
+ "nat-candle",
  "nat-train",
  "thiserror",
 ]
