@@ -1,0 +1,14 @@
+# Workspace build configuration.
+#
+# aarch64 (the GB10 DGX and other ARM64 dev boxes): enable the Armv8.2-A half-
+# precision instructions. Without this, `gemm-f16` (pulled transitively by candle)
+# fails to assemble its `fmla v0.8h, …` fp16 kernels and the workspace will not
+# build on aarch64 at all.
+#
+# We enable only `+fp16` — the precise feature gemm-f16 needs — rather than
+# `target-cpu=native`, so codegen stays identical across aarch64 machines. The
+# reproducibility floor (PLANSET/01) depends on the same source + compiler giving
+# the same output; `target-cpu=native` would tie codegen to each host's microarch
+# and break that. x86_64 builds (incl. the Docker CI image) are unaffected.
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "target-feature=+fp16"]

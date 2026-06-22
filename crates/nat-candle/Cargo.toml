@@ -16,5 +16,11 @@ nat-sidecar.workspace = true
 candle-core = "0.8"
 candle-nn = "0.8"
 
+[features]
+# Opt-in GPU path (the DGX / L1 build, §5.1 of docs/DGX_HANDOFF.md). Off by
+# default so the standard workspace build + CI stay CPU-only and need no CUDA
+# toolkit. Build the GPU path with: cargo build -p nat-candle --features cuda
+cuda = ["candle-core/cuda", "candle-nn/cuda"]
+
 [dev-dependencies]
 nat-provenance.workspace = true

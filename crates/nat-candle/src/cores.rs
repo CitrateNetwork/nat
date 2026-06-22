@@ -57,7 +57,7 @@ impl Default for CandleSsmCore {
             a: 0.9,
             b: 0.3,
             c: 1.0,
-            device: Device::Cpu,
+            device: crate::device::device(),
         }
     }
 }
@@ -111,7 +111,7 @@ pub struct CandleAttentionCore {
 impl Default for CandleAttentionCore {
     fn default() -> Self {
         CandleAttentionCore {
-            device: Device::Cpu,
+            device: crate::device::device(),
         }
     }
 }
