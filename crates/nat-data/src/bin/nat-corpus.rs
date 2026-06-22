@@ -14,7 +14,7 @@
 //! `run` flags: --input <jsonl> --out <root> [--shard-size N] [--min-quality F]
 //!              [--min-len N] [--max-len N] [--near-dup F] [--seed N]
 
-use nat_data::{gutenberg, jsonl, persist, run_pipeline, PipelineConfig, QuarantineReason};
+use nat_data::{code, gutenberg, jsonl, persist, run_pipeline, PipelineConfig, QuarantineReason};
 use nat_types::Q16;
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -29,6 +29,7 @@ fn main() {
         Some("run") => cmd_run(rest),
         Some("emit-seed") => cmd_emit_seed(rest),
         Some("from-gutenberg") => cmd_from_gutenberg(rest),
+        Some("from-code") => cmd_from_code(rest),
         Some("--help") | Some("-h") | None => {
             usage();
             0
@@ -48,7 +49,8 @@ fn usage() {
          USAGE:\n  \
            nat-corpus run --input <jsonl> --out <corpus-root> [config flags]\n  \
            nat-corpus emit-seed --out <file.jsonl>\n  \
-           nat-corpus from-gutenberg --id <N> [--input <file|->] [--out <jsonl|->] [--append] [--target-chars N]\n\n\
+           nat-corpus from-gutenberg --id <N> [--input <file|->] [--out <jsonl|->] [--append] [--target-chars N]\n  \
+           nat-corpus from-code --dir <repo> --license <SPDX> [--source <name>] [--out <jsonl|->] [--append] [--target-chars N] [--max-line-len N]\n\n\
          run config flags (defaults from PipelineConfig::default):\n  \
            --shard-size N   --min-quality F   --min-len N   --max-len N\n  \
            --near-dup F     --seed N\n"
@@ -198,6 +200,114 @@ fn cmd_from_gutenberg(args: &[String]) -> i32 {
                 docs.len(),
                 out,
                 if append { "" } else { "over" }
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("nat-corpus: writing {out}: {e}");
+            1
+        }
+    }
+}
+
+fn cmd_from_code(args: &[String]) -> i32 {
+    let f = flags(args);
+    let dir = require(&f, "dir").to_string();
+    let license = require(&f, "license").to_string();
+    if !nat_data::ALLOWED_LICENSES.contains(&license.as_str()) {
+        eprintln!(
+            "nat-corpus: license '{license}' is not permissive/allow-listed.\n  allowed: {}",
+            nat_data::ALLOWED_LICENSES.join(", ")
+        );
+        return 2;
+    }
+    let target_chars: usize = f
+        .get("target-chars")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1500);
+    let max_line_len: usize = f
+        .get("max-line-len")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1000);
+    let fetch_date = f.get("fetch-date").cloned().unwrap_or_else(today);
+    let root = Path::new(&dir);
+    let source = f.get("source").cloned().unwrap_or_else(|| {
+        root.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "repo".to_string())
+    });
+
+    let files = match code::walk_code_files(root) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("nat-corpus: walking {dir}: {e}");
+            return 1;
+        }
+    };
+
+    let mut docs = Vec::new();
+    let (mut processed, mut skipped) = (0usize, 0usize);
+    for path in &files {
+        // Skip non-UTF8 / unreadable, and minified (very long lines).
+        let content = match std::fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => {
+                skipped += 1;
+                continue;
+            }
+        };
+        if content.lines().any(|l| l.len() > max_line_len) {
+            skipped += 1;
+            continue;
+        }
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        docs.extend(code::file_to_rawdocs(
+            &source,
+            &license,
+            &fetch_date,
+            &rel,
+            &content,
+            target_chars,
+        ));
+        processed += 1;
+    }
+
+    if docs.is_empty() {
+        eprintln!(
+            "nat-corpus: no code passages from {dir} ({} files seen)",
+            files.len()
+        );
+        return 1;
+    }
+
+    let out = f.get("out").map(String::as_str).unwrap_or("-");
+    let append = f.contains_key("append");
+    let res = if out == "-" {
+        jsonl::write_rawdocs(std::io::stdout().lock(), &docs)
+    } else {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(append)
+            .write(true)
+            .truncate(!append)
+            .open(out);
+        match file {
+            Ok(file) => jsonl::write_rawdocs(std::io::BufWriter::new(file), &docs),
+            Err(e) => {
+                eprintln!("nat-corpus: opening {out}: {e}");
+                return 1;
+            }
+        }
+    };
+    match res {
+        Ok(()) => {
+            eprintln!(
+                "from-code {source} [{license}]: {processed} files ({skipped} skipped) -> {} passages -> {out}",
+                docs.len()
             );
             0
         }
