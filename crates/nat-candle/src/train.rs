@@ -6,7 +6,7 @@
 //! device at L1 — the point of choosing a real tensor framework now rather than
 //! discovering its rough edges during the expensive run.
 
-use candle_core::{DType, Device, Tensor};
+use candle_core::{DType, Tensor};
 use candle_nn::optim::{AdamW, ParamsAdamW};
 use candle_nn::{linear, loss, Module, Optimizer, VarBuilder, VarMap};
 
@@ -33,7 +33,7 @@ pub fn train_tiny_zone_head(
     out_dim: usize,
     steps: usize,
 ) -> candle_core::Result<TrainReport> {
-    let dev = Device::Cpu;
+    let dev = crate::device::device();
     let n = 64usize;
 
     // Deterministic synthetic inputs.

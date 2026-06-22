@@ -14,6 +14,7 @@
 //! not pull Candle unless this crate is built.
 
 pub mod cores;
+pub mod device;
 pub mod factory;
 pub mod train;
 
