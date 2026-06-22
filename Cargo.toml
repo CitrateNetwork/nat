@@ -58,6 +58,7 @@ nat-provenance = { path = "crates/nat-provenance" }
 nat-mcp = { path = "crates/nat-mcp" }
 nat-sidecar = { path = "crates/nat-sidecar" }
 nat-core = { path = "crates/nat-core" }
+nat-candle = { path = "crates/nat-candle" }
 nat-data = { path = "crates/nat-data" }
 nat-train = { path = "crates/nat-train" }
 

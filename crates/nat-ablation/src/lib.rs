@@ -23,7 +23,6 @@ pub use models::{
     TrainData,
 };
 
-use candle_core::Device;
 use nat_train::repro::RunConfig;
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -38,6 +37,8 @@ pub enum AblationError {
     },
     #[error("toy cores are forbidden in an ablation run; use a real (Candle) backend so H-01 measures the real model")]
     ToyCoresForbidden,
+    #[error("a multi-seed ablation needs at least one seed")]
+    NoSeeds,
     #[error("candle error: {0}")]
     Candle(String),
 }
@@ -68,6 +69,30 @@ impl Default for AblationConfig {
             n_zones: 5,
             steps: 200,
             lr: 0.05,
+            seed: 2026,
+            param_tolerance: 0.05,
+        }
+    }
+}
+
+impl AblationConfig {
+    /// A larger configuration for the GPU bet-deciding run — real widths and a
+    /// longer schedule, sized so the param-match still holds. Run it on the DGX
+    /// with `--features cuda`.
+    ///
+    /// NOTE: the arms are still the *structural analogs* (independent zone
+    /// projections vs a dense trunk), not the full `NatModel` with routing, merge,
+    /// and SSM cores. Swapping in the real model is backlog item #4 (a trainable
+    /// end-to-end zone pass); until then this measures the partitioning *structure*
+    /// at scale, which is a necessary-but-not-final read on H-01.
+    pub fn scaled() -> Self {
+        AblationConfig {
+            in_dim: 256,
+            out_dim: 128,
+            dense_hidden: 1024,
+            n_zones: 5,
+            steps: 2000,
+            lr: 0.01,
             seed: 2026,
             param_tolerance: 0.05,
         }
@@ -156,7 +181,11 @@ fn candle_err(e: candle_core::Error) -> AblationError {
 /// Run the H-01 ablation under the ADR-0005 protocol. Refuses (errors) rather
 /// than report an invalid comparison if the arms cannot be param-matched.
 pub fn run_ablation(cfg: &AblationConfig) -> Result<AblationReport, AblationError> {
-    let dev = Device::Cpu;
+    // Device + backend label come from nat-candle's single source of truth, so the
+    // ablation runs on the GPU under `--features cuda` and the report records the
+    // device that actually ran (candle-cuda vs candle-cpu) — no hardcoded label.
+    let dev = nat_candle::device::device();
+    let backend = nat_candle::device::backend_label();
 
     // 1. Size the partitioned arm to the dense arm's parameter budget (ADR-0005).
     let dense_p = dense_params(cfg.in_dim, cfg.dense_hidden, cfg.out_dim);
@@ -171,12 +200,15 @@ pub fn run_ablation(cfg: &AblationConfig) -> Result<AblationReport, AblationErro
         });
     }
 
-    // 2. Train both arms under identical conditions (same data, steps, lr).
-    let data = synthetic_data(64, cfg.in_dim, cfg.out_dim, &dev).map_err(candle_err)?;
-    let mut dense =
-        DenseArm::new(cfg.in_dim, cfg.dense_hidden, cfg.out_dim, &dev).map_err(candle_err)?;
-    let mut part =
-        PartitionedArm::new(cfg.in_dim, cfg.n_zones, zh, cfg.out_dim, &dev).map_err(candle_err)?;
+    // 2. Train both arms under identical conditions (same data, seed, steps, lr).
+    //    Both arms are seeded from the same `cfg.seed` (deterministic init, see
+    //    seeded_linear) — the ADR-0005 "same seed" requirement made real, and what
+    //    makes the run reproducible bit-for-bit on both CPU and GPU.
+    let data = synthetic_data(64, cfg.in_dim, cfg.out_dim, cfg.seed, &dev).map_err(candle_err)?;
+    let mut dense = DenseArm::new(cfg.in_dim, cfg.dense_hidden, cfg.out_dim, cfg.seed, &dev)
+        .map_err(candle_err)?;
+    let mut part = PartitionedArm::new(cfg.in_dim, cfg.n_zones, zh, cfg.out_dim, cfg.seed, &dev)
+        .map_err(candle_err)?;
     let (di, df) = dense.train(&data, cfg.steps, cfg.lr).map_err(candle_err)?;
     let (pi, pf) = part.train(&data, cfg.steps, cfg.lr).map_err(candle_err)?;
 
@@ -204,7 +236,7 @@ pub fn run_ablation(cfg: &AblationConfig) -> Result<AblationReport, AblationErro
     };
 
     Ok(AblationReport {
-        backend: "candle-cpu".into(),
+        backend: backend.into(),
         dense_params: dense_p,
         partitioned_params: part_p,
         param_rel_diff: rel,
@@ -218,6 +250,100 @@ pub fn run_ablation(cfg: &AblationConfig) -> Result<AblationReport, AblationErro
         partitioned_capability_per_param: part_cpp,
         h01_holds,
         repro_config_hash: repro.config_hash(),
+    })
+}
+
+/// The seed-averaged verdict over several ablation runs. A single seed can be a
+/// lucky (or unlucky) draw; H-01 is the bet-deciding metric, so the protocol
+/// (ADR-0005 / DGX_HANDOFF §5.2 step 4) is to run multiple seeds and judge the
+/// *average* capability-per-param.
+#[derive(Debug, Clone)]
+pub struct MultiSeedReport {
+    pub backend: String,
+    pub seeds: Vec<u64>,
+    /// Parameter counts (identical across seeds — same config, ADR-0005).
+    pub dense_params: usize,
+    pub partitioned_params: usize,
+    pub mean_dense_capability_per_param: f64,
+    pub mean_partitioned_capability_per_param: f64,
+    /// The H-01 verdict on the seed-averaged cap/param: partitioned ≥ dense within
+    /// the 5% slack. This is the call that matters — averaged, not single-draw.
+    pub h01_holds_on_mean: bool,
+    /// Fraction of individual seeds where partitioned ≥ dense — a stability signal
+    /// alongside the mean (e.g. "holds on the mean and on 4/5 seeds").
+    pub holds_fraction: f64,
+    /// The per-seed reports, in seed order, for drill-down and the repro anchors.
+    pub per_seed: Vec<AblationReport>,
+}
+
+impl MultiSeedReport {
+    pub fn summary(&self) -> String {
+        format!(
+            "H-01 ablation [{}] over {} seeds (params dense={} partitioned={})\n  \
+             mean cap/param: dense={:.3e} partitioned={:.3e}\n  \
+             verdict (mean): H-01 {} (partitioned {} dense); holds on {:.0}% of seeds",
+            self.backend,
+            self.seeds.len(),
+            self.dense_params,
+            self.partitioned_params,
+            self.mean_dense_capability_per_param,
+            self.mean_partitioned_capability_per_param,
+            if self.h01_holds_on_mean {
+                "HOLDS"
+            } else {
+                "REFUTED"
+            },
+            if self.h01_holds_on_mean { "≥" } else { "<" },
+            self.holds_fraction * 100.0,
+        )
+    }
+}
+
+/// Run the ablation across several seeds and average the verdict (ADR-0005 /
+/// §5.2 step 4). Each seed is a different deterministic task draw under the same
+/// protocol; the arms are param-matched identically every time. Refuses an empty
+/// seed set, and propagates a param-mismatch (the config is the same across
+/// seeds, so it either matches for all or none).
+pub fn run_ablation_seeds(
+    base: &AblationConfig,
+    seeds: &[u64],
+) -> Result<MultiSeedReport, AblationError> {
+    if seeds.is_empty() {
+        return Err(AblationError::NoSeeds);
+    }
+    let mut per_seed = Vec::with_capacity(seeds.len());
+    for &seed in seeds {
+        let cfg = AblationConfig {
+            seed,
+            ..base.clone()
+        };
+        per_seed.push(run_ablation(&cfg)?);
+    }
+
+    let n = per_seed.len() as f64;
+    let mean_dense = per_seed
+        .iter()
+        .map(|r| r.dense_capability_per_param)
+        .sum::<f64>()
+        / n;
+    let mean_part = per_seed
+        .iter()
+        .map(|r| r.partitioned_capability_per_param)
+        .sum::<f64>()
+        / n;
+    let holds_fraction = per_seed.iter().filter(|r| r.h01_holds).count() as f64 / n;
+
+    Ok(MultiSeedReport {
+        backend: per_seed[0].backend.clone(),
+        seeds: seeds.to_vec(),
+        dense_params: per_seed[0].dense_params,
+        partitioned_params: per_seed[0].partitioned_params,
+        mean_dense_capability_per_param: mean_dense,
+        mean_partitioned_capability_per_param: mean_part,
+        // Same slack as the single-seed verdict, applied to the averaged metric.
+        h01_holds_on_mean: mean_part >= mean_dense * 0.95,
+        holds_fraction,
+        per_seed,
     })
 }
 
@@ -242,7 +368,8 @@ mod tests {
     #[test]
     fn report_is_well_formed_and_records_backend_and_repro() {
         let report = run_ablation(&AblationConfig::default()).unwrap();
-        assert_eq!(report.backend, "candle-cpu");
+        assert_eq!(report.backend, nat_candle::device::backend_label());
+        assert!(report.backend.starts_with("candle-"));
         assert!(!report.repro_config_hash.is_empty());
         assert!(report.dense_capability_per_param > 0.0);
         assert!(report.partitioned_capability_per_param > 0.0);
@@ -268,6 +395,49 @@ mod tests {
     fn toy_cores_are_refused() {
         assert!(guard_not_toy(true).is_err()); // a toy-backed model cannot run the ablation
         assert!(guard_not_toy(false).is_ok()); // a real (Candle) backend may
+    }
+
+    #[test]
+    fn multiseed_report_is_well_formed_and_averages() {
+        let seeds = [1u64, 2, 3];
+        let report = run_ablation_seeds(&AblationConfig::default(), &seeds).unwrap();
+        assert_eq!(report.per_seed.len(), 3);
+        assert_eq!(report.seeds, seeds);
+        assert!(report.mean_dense_capability_per_param > 0.0);
+        assert!(report.mean_partitioned_capability_per_param > 0.0);
+        assert!((0.0..=1.0).contains(&report.holds_fraction));
+        // The mean is actually the mean of the per-seed values.
+        let expect = report
+            .per_seed
+            .iter()
+            .map(|r| r.partitioned_capability_per_param)
+            .sum::<f64>()
+            / 3.0;
+        assert!((report.mean_partitioned_capability_per_param - expect).abs() < 1e-9);
+    }
+
+    #[test]
+    fn multiseed_is_reproducible() {
+        // Same seeds + config → byte-identical repro anchors (set_seed makes init
+        // deterministic), so the averaged verdict is a reproducible commitment.
+        let seeds = [7u64, 8];
+        let a = run_ablation_seeds(&AblationConfig::default(), &seeds).unwrap();
+        let b = run_ablation_seeds(&AblationConfig::default(), &seeds).unwrap();
+        let ha: Vec<_> = a.per_seed.iter().map(|r| &r.repro_config_hash).collect();
+        let hb: Vec<_> = b.per_seed.iter().map(|r| &r.repro_config_hash).collect();
+        assert_eq!(ha, hb);
+        assert_eq!(
+            a.mean_partitioned_capability_per_param,
+            b.mean_partitioned_capability_per_param
+        );
+    }
+
+    #[test]
+    fn empty_seed_set_is_refused() {
+        match run_ablation_seeds(&AblationConfig::default(), &[]) {
+            Err(AblationError::NoSeeds) => {}
+            other => panic!("expected NoSeeds, got {other:?}"),
+        }
     }
 
     #[test]

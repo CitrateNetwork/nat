@@ -175,21 +175,33 @@ scripts/dgx-gpu.sh probe    # asserts the GPU device is actually live (candle-cu
 automatically by `.cargo/config.toml`.)
 
 ### 5.2 The H-01 ablation, for real (the bet)
-`nat-ablation` currently trains tiny partitioned-vs-dense Candle MLPs on synthetic
-data — the **machinery** (equal-params enforcement via ADR-0005, identical
-training, capability-per-param, repro hash, no-toy guard). To make the verdict
-conclusive:
+`nat-ablation` runs partitioned-vs-dense Candle arms under the ADR-0005 protocol
+(equal-params enforcement, identical training, capability-per-param, repro hash,
+no-toy guard). **Done since 2026-06-21 (steps 1, 3, 4):**
 
-1. Scale `AblationConfig` up (real `in_dim`/`out_dim`, real `dense_hidden`, more
-   steps) and point it at real data.
-2. Replace the toy `PartitionedArm` with the **full `NatModel`** (real Candle
-   cores) and the `DenseArm` with a real equal-param dense transformer.
-3. Keep the **ADR-0005 protocol** (`docs/.agentile/planset/decisions/ADR-0005`):
-   identical token budget, data, seed, tokenizer, optimizer, compute — only the
-   partitioning differs. The harness **refuses** unequal-params runs; don't bypass
-   that.
-4. Run multiple seeds, average. Report capability-per-param. **If partitioned <
-   dense at equal params, H-01 is refuted — say so and change course.**
+- Runs **on the GPU** — `run_ablation` reads `nat-candle`'s device source of truth
+  and records the real backend; `scripts/dgx-gpu.sh run -p nat-ablation --features
+  cuda --example ablation` runs it on the GB10 (`candle-cuda`).
+- **`AblationConfig::scaled()`** is the larger config (in=256, out=128,
+  dense_hidden=1024, 2000 steps), param-matched to ~0.1%.
+- **Multi-seed averaging** — `run_ablation_seeds(cfg, &seeds)` returns a
+  `MultiSeedReport` (mean cap/param + holds-fraction). Init is **reproducible** via
+  a seeded PRNG (`seeded_linear`), because candle's CPU backend cannot `set_seed`.
+- First scaled GPU read (5 seeds): **H-01 HOLDS** on the mean (partitioned 1.66e0 ≥
+  dense 1.55e0), holds on 4/5 seeds. *Necessary, not final* — see the caveat below.
+
+**Still open to make the verdict conclusive (step 2 — gated on backlog item #4):**
+
+2. Replace the structural-analog `PartitionedArm` (independent zone projections →
+   concat → head) with the **full `NatModel`** (real Candle cores + routing +
+   merge), and `DenseArm` with a real equal-param dense transformer. This needs the
+   trainable end-to-end zone pass (item #4) to exist first. Until then the harness
+   measures the partitioning *structure* at scale, not the full model.
+
+Keep the **ADR-0005 protocol** (`.agentile/planset/decisions/ADR-0005`): identical
+token budget, data, seed, optimizer, compute — only the partitioning differs. The
+harness **refuses** unequal-params runs; don't bypass it. **If partitioned < dense
+at equal params, H-01 is refuted — say so and change course.**
 
 ### 5.3 Real training data
 `nat-data` is the pipeline. Feed it real corpora (`RawDoc`s with permissive
@@ -205,7 +217,9 @@ at scale (Data Ops §4).
 
 1. ~~**GPU device swap** in `nat-candle` (§5.1)~~ — **DONE 2026-06-21**, verified
    live on the GB10 (`candle-cuda`). See §5.1 + `scripts/dgx-gpu.sh`.
-2. **Real H-01 ablation** (§5.2) — *the bet*. The harness is ready. ← next.
+2. **Real H-01 ablation** (§5.2) — *the bet*. **Partially done 2026-06-21**: runs
+   on the GPU at scale with multi-seed averaging + reproducible init (HOLDS, 4/5
+   seeds). Remaining: swap in the full `NatModel` arm — gated on item #4 below.
 3. **WP-1.4 — GGUF `FlattenedDense` export** + sidecar (`nat-sidecar::ExportKind`).
    Retires the "runs opaquely in Ollama" claim (critique #7). Candle is
    GGUF-native, so this is a clean fit.
