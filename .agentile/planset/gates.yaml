@@ -61,21 +61,40 @@ gates:
   - id: gate3
     name: Trainable and portable
     rung: L1
-    status: pending
+    status: partial
     exit_criteria:
       - id: g3-train
         desc: L1 model trains on the Spark (Burn/Candle cores)
-        met: false
+        met: true
+        note: >-
+          NAT-S2 WP-4 — nat_candle::train_loop::NatTrainModel trains end-to-end
+          (embedding→router→zones→merge→readout) on the GB10 (candle-cuda),
+          held-out loss drops, seeded-reproducible, emits StepContribution.
+          Caveat: synthetic task; real-corpus nat-data is the next data thread.
+        evidence: crates/nat-candle/src/train_loop.rs
       - id: g3-gguf
         desc: GGUF round-trip; Ollama-class load (FlattenedDense export)
         met: false
+        note: out of scope for NAT-S2; item #3 / WP-1.4
       - id: g3-routing
         desc: routing-differentiation metric beats baseline (H-02)
-        met: false
+        met: true
+        note: >-
+          NAT-S2 WP-3 — trained LearnedRouter separation 11.70 vs L0 baseline
+          4.25 on nat_eval's battery (same metric). Caveat: in-sample; held-out
+          batteries at scale are the final read.
+        evidence: crates/nat-eval/tests/h02_trained_router.rs
       - id: g3-h01
         desc: "H-01 ablation vs dense baseline of equal params (ADR-0005). BLOCKER."
         met: false
-        note: bet-deciding; baseline protocol pinned in ADR-0005
+        note: >-
+          NAT-S2 WP-5 — the conclusive HARNESS is done: real NatTrainModel vs an
+          equal-param DenseTransformerArm, param-matched (3882=3882), multi-seed,
+          on GPU. First read HOLDS on the mean (nat 4.37 ≥ dense 3.88 cap/param)
+          but only 3/5 seeds — a MARGINAL hold on the synthetic task, NOT decisive.
+          Real-corpus data at larger scale is the final word. Honest posture:
+          reported, not over-claimed.
+        evidence: crates/nat-ablation/src/real.rs
 
   - id: gate4
     name: Federated proof

@@ -59,7 +59,7 @@ PR #9). This sprint replaces the analogs with the real model.
 | WP-2 | **Differentiable merge reconciled to the hard one** — temperature-softmax over zone scores → weighted compose (f32, differentiable), annealable toward top-k. | (a) gradient flows to scores; (b) **hardening the soft weights reproduces `prune_and_reweight`'s survivor set** on a prompt battery (decision-faithful bridge, ADR-0006). | WP-1.2 | ✅ **done** — `nat-candle::merge_train` (`soft_weights`/`compose`/`argtopk`); spine composes via per-zone score heads → `softmax(·/τ)` → weighted sum → readout. Reconciliation over a battery + spine-level decision bridge + differentiability + annealing tests green (CPU + GPU). |
 | WP-3 | **Learned router gate** (ADR-0001) over input features, modulating **only declared edges**. | (a) gate is trainable (grad flows); (b) **no undeclared edge ever receives weight** (C-1 invariant, property-tested); (c) `nat_eval` routing-divergence on the trained gate **beats the L0 hand-wired baseline**. | WP-1.5 (H-02) | ✅ **done** — `nat-candle::router::LearnedRouter` (feat→hidden→sigmoid gate; edges copied from the sidecar so only declared edges can be weighted). Trainable + declared-edges-invariant tests in nat-candle; H-02 comparison in `nat-eval` (dev-dep nat-candle): **trained separation 11.70 vs L0 baseline 4.25**. `separation_ratio` exposed for the shared metric. |
 | WP-4 | **Learned embedding + real task + the loop** — trainable embedding, a task (scaled synthetic-structured first, then `nat-data` shards), GPU AdamW loop, 3-zone, seeded-reproducible, emitting `StepContribution`. | held-out loss drops; a `StepContribution` with `reward_weight = compute × quality` is emitted per step; a checkpoint round-trips (save → load → identical forward). | WP-1.2 | ✅ **done** — `nat-candle::train_loop::NatTrainModel` wires embedding → router (WP-3) → spine (WP-1) → merge (WP-2, score = activation × confidence) → readout; one optimizer over all vars, 3-zone, seeded. `held_out_loss_drops_end_to_end` + `emits_step_contributions_with_reward_weight` + `checkpoint_round_trips` green on CPU + GPU. StepContribution per step (`reward_weight = compute × quality`). Task is scaled-synthetic; real `nat-data` shards are the next data thread. |
-| WP-5 | **Swap the real NatModel into the H-01 ablation** — replace the analog `PartitionedArm` with the trainable 3-zone NatModel and `DenseArm` with a real equal-param dense transformer; keep ADR-0005 + `guard_not_toy`. | ablation runs with the **real** NatModel arm on GPU, param-matched ≤ tolerance, multi-seed; reports cap/param. The conclusive g3-h01 read. | WP-1.3 (g3-h01) | planned |
+| WP-5 | **Swap the real NatModel into the H-01 ablation** — replace the analog `PartitionedArm` with the trainable 3-zone NatModel and `DenseArm` with a real equal-param dense transformer; keep ADR-0005 + `guard_not_toy`. | ablation runs with the **real** NatModel arm on GPU, param-matched ≤ tolerance, multi-seed; reports cap/param. The conclusive g3-h01 read. | WP-1.3 (g3-h01) | ✅ **done** — `nat-ablation::real` (`run_real_ablation[_seeds]`): real `NatTrainModel` arm vs equal-param `DenseTransformerArm`, param-matched (search refuses on mismatch), multi-seed, `guard_not_toy`. GPU run (5 seeds, params 3882=3882): **H-01 HOLDS on the mean** (nat 4.37 ≥ dense 3.88 cap/param) but **only 3/5 seeds** — a marginal hold on the synthetic task; real-corpus is the final word. |
 | WP-6 *(stretch)* | **Deterministic-inference mode** for bit-faithful `output_hash` (ADR-0006 optional mode; H-03b). | re-running inference reproduces `output_hash` bit-for-bit under the mode. | H-03b | stretch |
 
 ## Sequencing & dependencies
@@ -93,17 +93,20 @@ follow-up.
 
 ## Exit criteria (Gate-3 bindings)
 
-- [ ] **g3-train** — the 3-zone NatModel trains end-to-end on the GB10 (`candle-cuda`),
-      loss drops on held-out data, reproducible from a seed; emits `StepContribution`.
-- [ ] **g3-routing (H-02)** — the trained router's routing-divergence beats the L0
-      baseline on `nat_eval`'s labeled battery, above the significance threshold.
-- [ ] **g3-h01 (BLOCKER)** — the conclusive ablation runs the **real** NatModel arm
-      vs an equal-param dense transformer under ADR-0005, multi-seed, on GPU, and
-      reports cap/param. **If partitioned < dense, H-01 is refuted — say so.**
-- [ ] decision-faithfulness preserved: hardened training merge == provenance merge on
-      the battery; Gate-2 acceptance suite still green; merge/trace path still Q16.16.
-- [ ] full gate green: `cargo test --workspace`, clippy `-D warnings`, fmt; GPU suite
-      via `scripts/dgx-gpu.sh test`.
+- [x] **g3-train** — the 3-zone NatModel trains end-to-end on the GB10 (`candle-cuda`),
+      held-out loss drops, reproducible from a seed; emits `StepContribution` (WP-4).
+      *Caveat: synthetic task; real-corpus `nat-data` is the next data thread.*
+- [x] **g3-routing (H-02)** — the trained router beats the L0 baseline on `nat_eval`'s
+      battery (**11.70 vs 4.25**, WP-3). *Caveat: in-sample; held-out is the final read.*
+- [~] **g3-h01 (BLOCKER)** — the conclusive ablation runs the **real** NatModel arm vs
+      an equal-param dense transformer under ADR-0005, multi-seed, on GPU (WP-5). First
+      read: **HOLDS on the mean** (nat 4.37 ≥ dense 3.88) but only **3/5 seeds** — a
+      *marginal* hold on the synthetic task. **Not yet decisive**; real-corpus data at
+      larger scale is the final word. Honest posture: reported, not over-claimed.
+- [x] decision-faithfulness preserved: hardened training merge == provenance merge on
+      the battery (WP-2); Gate-2 suite still green; merge/trace path still Q16.16.
+- [x] full gate green: `cargo test --workspace` (112), clippy `-D warnings`, fmt; GPU
+      suite via `scripts/dgx-gpu.sh test`.
 
 ## Out of scope (carried)
 

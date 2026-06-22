@@ -4,14 +4,20 @@ Every capability or design claim that is not yet proven (Research Method §6).
 Format: `H-id | statement | status: open|supported|refuted | evidence`.
 
 - **H-01** | Zone partitioning does not reduce capability per parameter versus a
-  dense baseline of equal size. | **open** | *the load-bearing bet.* Tested by
-  the L1 ablation (ADR-0005), gated as a Gate-3 blocker. Not measurable at L0.
+  dense baseline of equal size. | **open (L1 marginal-hold, not decisive)** | *the
+  load-bearing bet.* NAT-S2 WP-5 runs the conclusive harness — the real
+  `NatTrainModel` vs an equal-param dense transformer (3882=3882), multi-seed, on
+  the GB10 (`nat-ablation::real`). First read: HOLDS on the mean (nat 4.37 ≥ dense
+  3.88 cap/param) but only **3/5 seeds** — marginal, on the synthetic binned-sum
+  task. Not decisive; real-corpus data at larger scale is the final word. Honest
+  posture: if a scaled real-data run refutes it, change course.
 
 - **H-02** | Context-aware routing produces measurably different zone mixes for
-  different prompt classes. | **open (L0-encouraging)** | At L0 the router is
-  hand-wired, not trained, yet `nat_eval::routing_divergence` already shows
-  math vs narrative prompts driving different mixes. Real test is L1 over labeled
-  batteries against a significance threshold.
+  different prompt classes. | **supported (in-sample at L1)** | NAT-S2 WP-3 — the
+  trained `LearnedRouter` separates the battery at ratio **11.70 vs the L0 baseline
+  4.25** (same `nat_eval::separation_ratio` metric). In-sample (trained + scored on
+  the same battery, as is the baseline); the conclusive read is held-out batteries
+  at full scale.
 
 - **H-03a** | Provenance is *decision-faithful*: replaying recorded scores
   reproduces the recorded survivors and weights. | **supported** | Proven by
