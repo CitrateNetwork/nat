@@ -13,6 +13,7 @@
 //! Kept a separate crate so the default workspace build (the fast L0 path) does
 //! not pull Candle unless this crate is built.
 
+pub mod autoreg;
 pub mod cores;
 pub mod corpus;
 pub mod device;

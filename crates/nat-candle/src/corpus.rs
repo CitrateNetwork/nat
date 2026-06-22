@@ -60,6 +60,51 @@ pub fn seed_windows(seq_len: usize, max_windows: usize, dev: &Device) -> Result<
     next_byte_windows(&out.shards, seq_len, max_windows, dev)
 }
 
+/// Build **sequence** windows for the autoregressive objective (WP-D7): each row is
+/// a contiguous `seq_len`-byte sequence (non-overlapping chunks per document). The
+/// model predicts every next byte within the sequence, so one sequence yields
+/// `seq_len - 1` predictions — far more sample-efficient than the single-output
+/// next-byte windows. Returns `ids` of shape `(n, seq_len)`.
+pub fn sequence_windows(
+    shards: &[Shard],
+    seq_len: usize,
+    max_seqs: usize,
+    dev: &Device,
+) -> Result<Tensor> {
+    let mut ids: Vec<u32> = Vec::new();
+    let mut n = 0usize;
+    'outer: for shard in shards {
+        for doc in &shard.docs {
+            let toks = tokenizer::encode(&doc.text);
+            for chunk in toks.chunks(seq_len) {
+                if chunk.len() < seq_len {
+                    continue; // drop the short tail
+                }
+                ids.extend_from_slice(chunk);
+                n += 1;
+                if n >= max_seqs {
+                    break 'outer;
+                }
+            }
+        }
+    }
+    if n == 0 {
+        candle_core::bail!("no sequences produced (docs shorter than seq_len {seq_len})");
+    }
+    Tensor::from_vec(ids, (n, seq_len), dev)
+}
+
+/// Sequence windows from a persisted corpus directory (autoregressive path).
+pub fn sequences_from_dir(
+    dir: &std::path::Path,
+    seq_len: usize,
+    max_seqs: usize,
+    dev: &Device,
+) -> Result<Tensor> {
+    let shards = nat_data::persist::read_shards(dir).map_err(candle_core::Error::wrap)?;
+    sequence_windows(&shards, seq_len, max_seqs, dev)
+}
+
 /// Build windows from a persisted corpus directory (as written by the `nat-corpus`
 /// CLI): `<root>/<config_hash>/`. This is how training consumes a corpus Hermes
 /// produced — `nat-corpus run … --out <root>` then point here at the config dir.
