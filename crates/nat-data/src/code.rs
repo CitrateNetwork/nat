@@ -7,11 +7,9 @@
 //! fail-closed gate. The *clone/fetch* is the agent's network-granted job — this
 //! module is pure, dependency-free walking + splitting.
 //!
-//! NOTE (DATA-S1 follow-up): the pipeline's NORMALIZE stage collapses all
-//! whitespace, which flattens code layout (indentation, newlines). Code still
-//! carries strong *lexical* signal (keywords, identifiers, operators) this way,
-//! but a code-aware normalization that preserves line structure is a known
-//! follow-up before the CX zone is fully served.
+//! Code layout (indentation, newlines) survives the pipeline: NORMALIZE is
+//! code-aware (WP-D8) — it preserves line structure and indentation, so the CX zone
+//! trains on code as it is written, not a flattened token soup.
 
 use crate::RawDoc;
 use std::path::{Path, PathBuf};
