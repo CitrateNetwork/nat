@@ -149,6 +149,15 @@ impl NatTrainModel {
         v
     }
 
+    /// Total trainable parameter count (embedding + router + spine) — the budget
+    /// the H-01 dense baseline must match (ADR-0005).
+    pub fn param_count(&self) -> usize {
+        self.all_vars()
+            .iter()
+            .map(|v| v.as_tensor().elem_count())
+            .sum()
+    }
+
     /// Forward: token ids `(batch, seq_len)` → class logits `(batch, n_classes)`.
     /// Embedding → pooled-embedding router gate → spine slices + cores → merge
     /// (score = activation × confidence) → readout.
