@@ -75,15 +75,15 @@ A skill pack so Hermes plans/tracks/ships like the ecosystem (mirrors the user's
 
 ## Work packages
 
-| WP | Subject | Acceptance |
-|----|---------|-----------|
-| WP-H1 | **Hermes config**: Operator profile + capability grant (data dir + fetch + sandbox) + approval-queue wiring | a configured, revocable session visible in Agent Center |
-| WP-H2 | **`RawDoc` JSONL contract** + converters | round-trips a fetched doc → `RawDoc` → pipeline, provenance intact |
-| WP-H3 | **Pipeline-runner CLI** (`nat-data`) | `cargo run`-able: JSONL in → shards + manifest out, on disk |
-| WP-H4 | **Agentile skill pack** (above) | each skill runs; Hermes creates a repo + sprint + standup unaided |
-| WP-H5 | **Source connectors** (Gutenberg, HF, permissive code) | each fetches + screens; new domains hit the approval queue |
-| WP-H6 | **Discord wiring + daily cron** | Hermes runs the daily cycle on a schedule; reports to Discord + the research loop |
-| WP-H7 | **Operations surfacing** | seen → configured → monitored → paused → audited from the GUI (the operating model's "finished feature" bar) |
+| WP | Subject | Acceptance | Status |
+|----|---------|-----------|--------|
+| WP-H1 | **Hermes config**: Operator profile + capability grant (data dir + fetch + sandbox) + approval-queue wiring | a configured, revocable session visible in Agent Center | planned (owner) |
+| WP-H2 | **`RawDoc` JSONL contract** + converters | round-trips a fetched doc → `RawDoc` → pipeline, provenance intact | ✅ done — `nat-data::jsonl` (read/write, blank-skip, line-numbered errors); `RawDoc` is serde with optional `modality_refs`. |
+| WP-H3 | **Pipeline-runner CLI** (`nat-data`) | `cargo run`-able: JSONL in → shards + manifest out, on disk | ✅ done — `nat-corpus` bin (`run` / `emit-seed`), auditable summary (kept/quarantine-by-reason/quality/manifest-hash); `nat-candle::corpus::windows_from_dir` loads it for training. |
+| WP-H4 | **Agentile skill pack** (above) | each skill runs; Hermes creates a repo + sprint + standup unaided | planned |
+| WP-H5 | **Source connectors** (Gutenberg, HF, permissive code) | each fetches + screens; new domains hit the approval queue | planned |
+| WP-H6 | **Discord wiring + daily cron** | Hermes runs the daily cycle on a schedule; reports to Discord + the research loop | planned (owner) |
+| WP-H7 | **Operations surfacing** | seen → configured → monitored → paused → audited from the GUI (the operating model's "finished feature" bar) | planned |
 
 ## The boundary (what needs the owner)
 
