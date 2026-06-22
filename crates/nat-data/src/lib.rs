@@ -160,9 +160,21 @@ pub struct PipelineOutput {
     pub quarantine: Vec<Quarantined>,
 }
 
-/// Run the full pipeline. Deterministic in (raw set, config) — and independent of
-/// the *order* of `raw`, because sharding is sorted by a config-seeded key.
+/// Run the full pipeline with the heuristic quality scorer. Deterministic in
+/// (raw set, config) — and independent of the *order* of `raw`, because sharding is
+/// sorted by a config-seeded key.
 pub fn run_pipeline(raw: Vec<RawDoc>, cfg: &PipelineConfig) -> PipelineOutput {
+    run_pipeline_with_scorer(raw, cfg, &|t| quality::score(t))
+}
+
+/// Run the pipeline with a custom quality scorer (WP-D5 pt2) — e.g. a model-based
+/// `nat_data::quality::NgramModel` instead of the heuristic. Everything else (the
+/// license/length/dedup/PII gates, sharding, manifest) is identical.
+pub fn run_pipeline_with_scorer(
+    raw: Vec<RawDoc>,
+    cfg: &PipelineConfig,
+    scorer: &dyn Fn(&str) -> Q16,
+) -> PipelineOutput {
     let mut quarantine: Vec<Quarantined> = Vec::new();
     let mut kept: Vec<Document> = Vec::new();
     // Shingle sets of kept docs, for near-dup detection.
@@ -240,7 +252,7 @@ pub fn run_pipeline(raw: Vec<RawDoc>, cfg: &PipelineConfig) -> PipelineOutput {
             });
             continue;
         }
-        let q = quality::score(&text);
+        let q = scorer(&text);
         if q < cfg.min_quality {
             quarantine.push(Quarantined {
                 doc_id: rd.id,
