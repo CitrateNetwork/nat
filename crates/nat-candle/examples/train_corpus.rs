@@ -18,14 +18,15 @@ fn main() {
         model.param_count()
     );
 
-    // Optional arg: a persisted corpus dir (from `nat-corpus run`). Default: seed.
+    // Optional arg: a persisted corpus dir (from `nat-corpus run`). A large corpus
+    // loads many windows and trains by mini-batch (WP-D10); the seed is tiny.
     let (ids, targets) = match std::env::args().nth(1) {
         Some(dir) => {
             println!("corpus: {dir}");
             windows_from_dir(
                 std::path::Path::new(&dir),
                 cfg.seq_len,
-                30000,
+                200_000,
                 model.device(),
             )
             .unwrap()
@@ -41,12 +42,18 @@ fn main() {
     let ytr = targets.narrow(0, 0, n_tr).unwrap();
     let xva = ids.narrow(0, n_tr, n - n_tr).unwrap();
     let yva = targets.narrow(0, n_tr, n - n_tr).unwrap();
-    println!("windows: {n_tr} train / {} val", n - n_tr);
+    println!(
+        "windows: {n_tr} train / {} val (mini-batch SGD, batch 256)",
+        n - n_tr
+    );
 
     let bits = |nats: f32| nats / std::f32::consts::LN_2;
     let before = model.loss_on(&xva, &yva).unwrap();
     for epoch in 0..8 {
-        model.train(&xtr, &ytr, 100, 0.003).unwrap();
+        // One shuffled pass over all train windows per epoch (WP-D10).
+        model
+            .train_minibatched(&xtr, &ytr, 1, 256, 0.003, 2026 ^ epoch as u64)
+            .unwrap();
         let l = model.loss_on(&xva, &yva).unwrap();
         println!(
             "  epoch {}: held-out {:.4} nats ({:.3} bits/byte)",

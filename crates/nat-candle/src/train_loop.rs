@@ -228,6 +228,54 @@ impl NatTrainModel {
         Ok(contributions)
     }
 
+    /// Mini-batch SGD over shuffled windows (WP-D10) — the loop that actually
+    /// exploits a large corpus. Each epoch deterministically shuffles the `N`
+    /// windows and steps AdamW over batches of `batch_size`, so the model sees the
+    /// whole dataset rather than a single fixed full-batch slice. Returns a
+    /// [`StepContribution`] per optimizer step (one per batch).
+    pub fn train_minibatched(
+        &mut self,
+        ids: &Tensor,
+        targets: &Tensor,
+        epochs: usize,
+        batch_size: usize,
+        lr: f64,
+        shuffle_seed: u64,
+    ) -> Result<Vec<StepContribution>> {
+        let (n, seq) = ids.dims2()?;
+        let bs = batch_size.clamp(1, n.max(1));
+        let mut opt = AdamW::new(
+            self.all_vars(),
+            ParamsAdamW {
+                lr,
+                ..Default::default()
+            },
+        )?;
+        let mut perm: Vec<u32> = (0..n as u32).collect();
+        let mut contributions = Vec::new();
+        let mut step = 0usize;
+        for epoch in 0..epochs {
+            shuffle(
+                &mut perm,
+                shuffle_seed ^ (epoch as u64).wrapping_mul(0x9E37_79B9),
+            );
+            let mut start = 0;
+            while start < n {
+                let end = (start + bs).min(n);
+                let idx =
+                    Tensor::from_vec(perm[start..end].to_vec(), (end - start,), &self.device)?;
+                let xb = ids.index_select(&idx, 0)?;
+                let yb = targets.index_select(&idx, 0)?;
+                let l = loss::cross_entropy(&self.forward(&xb)?, &yb)?;
+                opt.backward_step(&l)?;
+                contributions.push(self.step_contribution(step, ((end - start) * seq) as u64));
+                step += 1;
+                start = end;
+            }
+        }
+        Ok(contributions)
+    }
+
     /// The settlement-seam contribution for one step: `reward_weight =
     /// compute_metered × data_quality`, on the Q16.16 path.
     fn step_contribution(&self, step: usize, tokens: u64) -> StepContribution {
@@ -268,6 +316,16 @@ impl NatTrainModel {
             .varmap_mut()
             .load(dir.join("spine.safetensors"))?;
         Ok(())
+    }
+}
+
+/// Deterministic in-place Fisher-Yates shuffle (seeded), so an epoch's batch order
+/// is reproducible from `(shuffle_seed, epoch)`.
+fn shuffle(perm: &mut [u32], seed: u64) {
+    let mut rng = SplitMix64::new(seed);
+    for i in (1..perm.len()).rev() {
+        let j = (rng.next_u64() % (i as u64 + 1)) as usize;
+        perm.swap(i, j);
     }
 }
 
@@ -359,6 +417,44 @@ mod tests {
             ..c.clone()
         };
         assert_eq!(zeroq.reward_weight(), Q16::ZERO);
+    }
+
+    #[test]
+    fn minibatch_training_reduces_loss_and_counts_steps() {
+        // WP-D10: mini-batch SGD over shuffled windows drives the loss down, and
+        // emits one StepContribution per batch (epochs × ceil(N/bs)).
+        let cfg = NatTrainConfig::small_3zone();
+        let mut model = NatTrainModel::new(&cfg).unwrap();
+        let (x, y) = synthetic_task(120, &cfg, 1, model.device()).unwrap();
+        let before = model.loss_on(&x, &y).unwrap();
+        let bs = 32;
+        let epochs = 4;
+        let contribs = model
+            .train_minibatched(&x, &y, epochs, bs, 0.05, 7)
+            .unwrap();
+        let after = model.loss_on(&x, &y).unwrap();
+        assert!(
+            after < before * 0.9,
+            "minibatch did not learn: {before} -> {after}"
+        );
+        let per_epoch = 120_usize.div_ceil(bs);
+        assert_eq!(contribs.len(), epochs * per_epoch);
+    }
+
+    #[test]
+    fn minibatch_is_reproducible() {
+        // Same init + same shuffle seed → identical result (seeded shuffle + init).
+        let cfg = NatTrainConfig::small_3zone();
+        let (x, y) = {
+            let m = NatTrainModel::new(&cfg).unwrap();
+            synthetic_task(96, &cfg, 2, m.device()).unwrap()
+        };
+        let run = || {
+            let mut m = NatTrainModel::new(&cfg).unwrap();
+            m.train_minibatched(&x, &y, 3, 24, 0.05, 99).unwrap();
+            m.loss_on(&x, &y).unwrap()
+        };
+        assert_eq!(run(), run());
     }
 
     #[test]
