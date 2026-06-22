@@ -48,6 +48,15 @@ H-01/H-02 read updates the next day's intent.
 
 > Append a block per day. Newest at the top.
 
+### 2026-06-22 — BPE tokenizer (WP-D5) — ~31% better bits/byte
+- `nat-data::bpe::Bpe` (byte-level, deterministic, dep-free) + `nat-corpus train-bpe`.
+  Compression: **1.99 bytes/token @ vocab 1024**, 2.38 @ 4096.
+- BPE autoregressive LM (vocab 1024, 128K params): held-out **2.37 bits/byte** vs the
+  byte autoregressive LM's 3.42 — a **~31% reduction** (each position covers ~2 bytes).
+  bits/byte is the fair metric (normalizes out the vocab). BPE is the scalable choice
+  toward L2.
+- **Next:** model-based quality gate (WP-D5 part 2); BPE at larger vocab/scale.
+
 ### 2026-06-22 — scale ladder toward L2 (WP-D11) — the architecture scales
 - `byte_lm{,_medium,_large}` configs + `scale_ladder` example. On the 1.12M-token
   corpus (held-out bits/byte): **S 20718p 3-zone 4.097 → M 56534p 3-zone 4.054 →
