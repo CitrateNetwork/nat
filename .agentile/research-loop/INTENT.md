@@ -48,6 +48,16 @@ H-01/H-02 read updates the next day's intent.
 
 > Append a block per day. Newest at the top.
 
+### 2026-06-22 — scale ladder toward L2 (WP-D11) — the architecture scales
+- `byte_lm{,_medium,_large}` configs + `scale_ladder` example. On the 1.12M-token
+  corpus (held-out bits/byte): **S 20718p 3-zone 4.097 → M 56534p 3-zone 4.054 →
+  L 114956p 5-zone 3.953**. Monotonic improvement with size; the 5-zone L rung (first
+  real-data training of the SM/CB **SSM** zones, ADR-0008) is best.
+- Evidence that the zone architecture scales on real data → justifies L2 compute.
+- **Next toward L2 (architectural):** WP-D7 per-position autoregressive LM (predict at
+  every position, not one byte per fixed context — the efficiency step), then BPE
+  (WP-D5) + code-normalize (WP-D8), then bigger + committed compute.
+
 ### 2026-06-22 — CONCLUSIVE H-01 on real data (WP-D6) — the bet HOLDS
 - `run_real_corpus_ablation`: real NatModel vs equal-param dense transformer
   (20718≈20701), both **mini-batch-trained on the 1.12M-token corpus**, held-out
