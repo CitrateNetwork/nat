@@ -71,6 +71,18 @@ an Ollama-class harness, and the routing-differentiation metric beats baseline.
   `reward_weight`). Open at L1: real corpora ingestion + a real tokenizer +
   model-based quality filters.
 
+### DGX cycle (Gate 3 on the GB10) — in progress
+
+The open L1 parts of WP-1.2/1.3/1.5 are decomposed in
+`.agentile/sprints/active/2026-06-21-S2-trainable-zone-pass.md` (**NAT-S2**).
+Landed so far: the **GPU device swap** (`nat-candle`, `candle-cuda` live on the
+GB10) and the **H-01 ablation on GPU + multi-seed** with *structural-analog* arms
+(`nat-ablation`) — a necessary, not final, read (HOLDS, 4/5 seeds). The conclusive
+H-01 (WP-1.3) needs the real trainable `NatModel` as the partitioned arm, which is
+the NAT-S2 deliverable (trainable end-to-end zone pass: tensor spine → differentiable
+merge reconciled to the Q16.16 provenance merge per ADR-0006 → learned router →
+training loop → real-model ablation, 3-zone per ADR-0008).
+
 ## Sprint 2 — Gate 4 (Federated proof)
 
 L3 research milestone: multi-node signed async gather toward the shared model;
