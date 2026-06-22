@@ -317,9 +317,50 @@ fn build_manifest(cfg: &PipelineConfig, shards: &[Shard]) -> CorpusManifest {
 
 // ---- normalization, tokenization, dedup helpers ----------------------------
 
-/// Collapse runs of whitespace to single spaces and trim. Deterministic.
+/// Code-aware normalization (WP-D8). Preserves line structure so code keeps its
+/// indentation and layout — the earlier "collapse all whitespace to single spaces"
+/// flattened code, which trains the CX zone on lexically-correct but structureless
+/// text. Per line: keep the leading whitespace (indentation) verbatim, collapse
+/// internal whitespace runs to a single space, trim the trailing whitespace. Across
+/// lines: drop leading/trailing blank lines and collapse 3+ consecutive blank lines
+/// to one. Deterministic. Prose (single-line passages) is unaffected.
 pub fn normalize(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    let mut lines: Vec<String> = Vec::new();
+    for raw in s.split('\n') {
+        let line = raw.trim_end();
+        if line.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let body = line.trim_start();
+        let indent = &line[..line.len() - body.len()];
+        let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
+        lines.push(format!("{indent}{collapsed}"));
+    }
+    // Collapse runs of blank lines to a single blank line.
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    let mut prev_blank = false;
+    for l in lines {
+        let blank = l.is_empty();
+        if blank && prev_blank {
+            continue;
+        }
+        prev_blank = blank;
+        out.push(l);
+    }
+    // Trim leading/trailing blank lines.
+    while out.first().is_some_and(String::is_empty) {
+        out.remove(0);
+    }
+    while out.last().is_some_and(String::is_empty) {
+        out.pop();
+    }
+    // The first line never carries meaningful indentation (a doc start, or a
+    // mid-block code split whose absolute indent is arbitrary) — left-trim it.
+    if let Some(first) = out.first_mut() {
+        *first = first.trim_start().to_string();
+    }
+    out.join("\n")
 }
 
 /// Toy whitespace tokenizer (real tokenizer at L1). Token count only.
@@ -462,6 +503,32 @@ mod tests {
             out.quarantine[0].reason,
             QuarantineReason::UnreviewedLicense(_)
         ));
+    }
+
+    #[test]
+    fn normalize_preserves_code_structure() {
+        // WP-D8: indentation and line breaks survive (the CX zone needs them);
+        // internal whitespace runs collapse; blank-line runs collapse.
+        let code =
+            "fn main() {\n    let  x =   vec![1, 2];\n\n\n    println!(\"{}\", x.len());\n}\n";
+        let n = normalize(code);
+        assert!(
+            n.contains("\n    let x = vec![1, 2];"),
+            "indentation/lines lost: {n:?}"
+        );
+        assert!(
+            !n.contains("\n\n\n"),
+            "blank-line runs not collapsed: {n:?}"
+        );
+        assert!(n.starts_with("fn main() {") && n.ends_with('}'));
+    }
+
+    #[test]
+    fn normalize_cleans_prose_single_line() {
+        assert_eq!(
+            normalize("  she   walked\tthe shore  "),
+            "she walked the shore"
+        );
     }
 
     #[test]
