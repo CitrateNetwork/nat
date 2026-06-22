@@ -16,3 +16,6 @@ Cargo.lock.orig
 # TLC model-checking scratch output
 formal/states/
 formal/*.toolbox/
+
+# TLC tools (downloaded)
+/.tlc/
