@@ -71,9 +71,77 @@ pub fn pii_hit(text: &str) -> Option<String> {
     None
 }
 
+/// WP-D5 (part 2) — a model-based quality scorer: a byte **bigram** language model
+/// (add-1 smoothed) over a clean reference corpus. A document's score falls as its
+/// bits-per-byte under the model rises — well-formed text is predictable (low
+/// bits/byte → high score); mojibake / symbol soup / gibberish is not (high
+/// bits/byte → low score). Complements the heuristic [`score`]; both are available,
+/// and the pipeline can gate on either via [`crate::run_pipeline_with_scorer`].
+pub struct NgramModel {
+    /// `counts[a*256 + b]` = how often byte `b` followed byte `a` in the reference.
+    counts: Vec<u64>,
+    /// `ctx[a]` = how often byte `a` appeared as a context.
+    ctx: Vec<u64>,
+}
+
+impl NgramModel {
+    /// Train the bigram model on a clean reference corpus (e.g. the CC0 seed).
+    pub fn train<'a, I: IntoIterator<Item = &'a str>>(texts: I) -> Self {
+        let mut counts = vec![0u64; 256 * 256];
+        let mut ctx = vec![0u64; 256];
+        for text in texts {
+            for w in text.as_bytes().windows(2) {
+                let (a, b) = (w[0] as usize, w[1] as usize);
+                counts[a * 256 + b] += 1;
+                ctx[a] += 1;
+            }
+        }
+        NgramModel { counts, ctx }
+    }
+
+    /// Average bits per byte of `text` (add-1 smoothed, so an unseen pair costs
+    /// ~8 bits, not infinity).
+    pub fn bits_per_byte(&self, text: &str) -> f32 {
+        let bytes = text.as_bytes();
+        if bytes.len() < 2 {
+            return 8.0;
+        }
+        let mut total = 0.0f64;
+        let mut n = 0u64;
+        for w in bytes.windows(2) {
+            let (a, b) = (w[0] as usize, w[1] as usize);
+            let p = (self.counts[a * 256 + b] as f64 + 1.0) / (self.ctx[a] as f64 + 256.0);
+            total += -p.log2();
+            n += 1;
+        }
+        (total / n as f64) as f32
+    }
+
+    /// Quality score in [0,1] = `1 - bits_per_byte/8` (8 = uniform random → 0; clean
+    /// English ≈ 2–3 bits/byte → ≈ 0.6–0.75).
+    pub fn score(&self, text: &str) -> Q16 {
+        Q16::from_f32((1.0 - self.bits_per_byte(text) / 8.0).clamp(0.0, 1.0))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn model_score_ranks_clean_above_gibberish() {
+        let model = NgramModel::train(crate::seed::seed_corpus().iter().map(|d| d.text.as_str()));
+        let clean = model
+            .score("a clear and reasonably diverse english sentence about rivers")
+            .to_f32();
+        let gibberish = model
+            .score("zxqj wkvb ppphhh 9183 zzz qqqq vbvbvb kkkk")
+            .to_f32();
+        assert!(
+            clean > gibberish + 0.1,
+            "clean {clean} not above gibberish {gibberish}"
+        );
+    }
 
     #[test]
     fn clean_prose_scores_higher_than_symbol_soup() {
