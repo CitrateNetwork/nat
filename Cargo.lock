@@ -678,6 +678,7 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "nat-core",
+ "nat-data",
  "nat-provenance",
  "nat-sidecar",
  "nat-train",
