@@ -561,3 +561,69 @@ batched and the sweep is a committed, re-runnable example.
 training *sequences* equal but not training *bytes* (bigger-vocab windows cover more text),
 a second-order unfairness bits/byte mostly normalizes but doesn't erase; WP-D7 and real L2
 scale remain the rungs that could still move the picture.
+
+---
+
+# 2026-06-23 — H-01 on the real architecture, at scale: the gap widens
+
+## What I tested
+
+Every H-01 read until now used the single-output byte-LM — vocab 256, ~20K params, one
+prediction per window. That was the L1 model, and it was never the thing we mean to scale.
+The architecture we actually intend for L2 is the per-position autoregressive LM (WP-D7) on
+BPE tokens. So I gave that architecture its first H-01 baseline: NAT `AutoregLm` (5 zones —
+SM/CB state-space + HP/PF/CX attention, merged per position) against a new param-matched
+per-position dense Transformer (`AutoregDenseLm` — one causal-attention block + FFN, no
+partitioning, bit-identical embedding and readout). BPE-4096, five seeds, held-out bits/byte,
+param-matched to under 0.02%. And — for the first time in this whole arc — genuinely on the
+GPU, verified, not the silent CPU fallback.
+
+Then a size ladder: 250K, 1M, 2M parameters.
+
+    params     NAT b/byte   dense b/byte   gap
+    248,235      2.086         2.110       0.024    HOLDS 5/5
+    1,005,603    1.890         1.996       0.106    HOLDS 5/5
+    1,992,978    1.845         1.986       0.141    HOLDS 5/5
+
+## The result
+
+H-01 holds 5/5 seeds at every rung — and the margin *grows* with scale: 0.024 → 0.106 →
+0.141 bits/byte. The partitioned model doesn't just keep its per-parameter edge as it gets
+bigger; the edge widens. That is the single most encouraging thing the bet could do, because
+the whole worry has always been that partitioning is a small-model trick that a big dense
+transformer would erase. Across an 8x param range it does the opposite.
+
+## What I'm not claiming
+
+This is a scale-up *toward* L2, not L2. Three points, all ≤2M params, on ~788K BPE tokens —
+24,000 training windows. True L2 is ~10B parameters with committed compute (gate g5-l2,
+owner-gated), and a 10B model on this corpus would memorize it outright. The 2M point is near
+this data's honest ceiling: held-out loss is still falling, so it isn't overfit-bound yet, but
+it's getting there, and the next real lever is corpus *volume*, not more parameters. A widening
+gap over three small points is a direction, not a guarantee at 10B — if a bigger run flattens
+or reverses it, that's the result and we follow it.
+
+One more honesty note specific to BPE-4096: at that vocab the embedding and readout dominate
+the parameter budget, so zone partitioning only governs a minority of the params. The hold is
+a per-parameter signal concentrated in the cores, riding on top of an embedding both arms
+share. That it shows through at all — cleanly, every seed, widening — is the point.
+
+## The durable lesson
+
+Test the hypothesis on the thing you intend to ship, not the thing that was easy to measure.
+H-01 had five green seeds on the byte-LM for weeks, and it would have been easy to call that
+the answer. But the byte-LM wasn't the architecture headed for L2 — the per-position BPE model
+was, and it had never been put through the ablation. Moving the test onto the real
+architecture is what turned "the bet held once, small" into "the bet holds across scale and
+strengthens." The cost was a per-position dense baseline that didn't exist yet; the payoff was
+a result that actually speaks to the decision in front of us.
+
+## What is true now, and what is still a bet
+
+*True:* H-01 holds 5/5 on the per-position autoregressive BPE-4096 architecture at 250K/1M/2M
+params, genuinely on GPU, with the NAT-over-dense gap widening monotonically with scale; the
+dense per-position baseline and the ablation are committed and re-runnable.
+
+*Still a bet:* ≤2M params on ~788K tokens is data-limited; the widening gap is three points,
+not a 10B extrapolation; corpus volume is the next gate before scale can go further; real L2
+(committed compute) remains the rung that could still refute.

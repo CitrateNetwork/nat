@@ -341,6 +341,181 @@ impl AutoregLm {
     }
 }
 
+/// A per-position **dense** autoregressive LM — the H-01 baseline for `AutoregLm`.
+///
+/// Same shape as `AutoregLm` (causal, predicts at every position, identical
+/// embedding + readout), but the cores are NOT zone-partitioned: a single causal
+/// self-attention block + a dense FFN, each with a residual — a standard
+/// Transformer block. The FFN width (`d_ff`) is the knob the ablation tunes to
+/// param-match the NAT arm (ADR-0005), so any held-out difference is attributable
+/// to zone partitioning, not parameter count. Embedding/readout are bit-identical
+/// in structure to the NAT arm (same vocab, same `d`), so the comparison isolates
+/// the cores.
+pub struct AutoregDenseLm {
+    varmap: VarMap,
+    emb: Tensor,
+    wq: Linear,
+    wk: Linear,
+    wv: Linear,
+    wo: Linear,
+    w1: Linear,
+    w2: Linear,
+    readout: Linear,
+    mask: Tensor,
+    vocab: usize,
+    d: usize,
+    device: Device,
+}
+
+impl AutoregDenseLm {
+    pub fn new(vocab: usize, seq_len: usize, d: usize, d_ff: usize, seed: u64) -> Result<Self> {
+        let dev = crate::device::device();
+        let varmap = VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &dev);
+
+        let table = seeded_uniform((vocab, d), 0.1, name_seed(seed, "embedding"), &dev)?;
+        let var = candle_core::Var::from_tensor(&table)?;
+        let emb = var.as_tensor().clone();
+        varmap
+            .data()
+            .lock()
+            .unwrap()
+            .insert("embedding.weight".to_string(), var);
+
+        let wq = seeded_linear(&varmap, &vb, "wq", d, d, seed, &dev)?;
+        let wk = seeded_linear(&varmap, &vb, "wk", d, d, seed, &dev)?;
+        let wv = seeded_linear(&varmap, &vb, "wv", d, d, seed, &dev)?;
+        let wo = seeded_linear(&varmap, &vb, "wo", d, d, seed, &dev)?;
+        let w1 = seeded_linear(&varmap, &vb, "w1", d, d_ff, seed, &dev)?;
+        let w2 = seeded_linear(&varmap, &vb, "w2", d_ff, d, seed, &dev)?;
+        let readout = seeded_linear(&varmap, &vb, "readout", d, vocab, seed, &dev)?;
+        let mask = causal_attn_mask(seq_len, &dev)?;
+
+        Ok(AutoregDenseLm {
+            varmap,
+            emb,
+            wq,
+            wk,
+            wv,
+            wo,
+            w1,
+            w2,
+            readout,
+            mask,
+            vocab,
+            d,
+            device: dev,
+        })
+    }
+
+    pub fn param_count(&self) -> usize {
+        self.varmap
+            .all_vars()
+            .iter()
+            .map(|v| v.as_tensor().elem_count())
+            .sum()
+    }
+
+    pub fn device(&self) -> &Device {
+        &self.device
+    }
+
+    /// Logits at every position: ids `(b, seq)` → `(b, seq, vocab)`.
+    pub fn forward(&self, ids: &Tensor) -> Result<Tensor> {
+        let (b, seq) = ids.dims2()?;
+        let emb = self
+            .emb
+            .index_select(&ids.flatten_all()?, 0)?
+            .reshape((b, seq, self.d))?;
+        // Causal self-attention block, residual.
+        let q = self.wq.forward(&emb)?;
+        let k = self.wk.forward(&emb)?;
+        let v = self.wv.forward(&emb)?;
+        let scale = 1.0 / (self.d as f64).sqrt();
+        let scores = q.matmul(&k.transpose(1, 2)?)?.affine(scale, 0.0)?;
+        let scores = scores.broadcast_add(&self.mask)?; // causal
+        let attn = candle_nn::ops::softmax(&scores, D::Minus1)?;
+        let ctx = attn.matmul(&v)?;
+        let h = emb.add(&self.wo.forward(&ctx)?)?; // (b, seq, d)
+                                                   // FFN block, residual.
+        let ffn = self.w2.forward(&self.w1.forward(&h)?.relu()?)?;
+        let h2 = h.add(&ffn)?;
+        self.readout.forward(&h2) // (b, seq, vocab)
+    }
+
+    pub fn loss_on_batched(&self, ids: &Tensor, batch_size: usize) -> Result<f32> {
+        let n = ids.dims2()?.0;
+        if n == 0 {
+            return Ok(0.0);
+        }
+        let bs = batch_size.clamp(1, n);
+        let (mut weighted, mut rows) = (0.0f64, 0usize);
+        let mut start = 0;
+        while start < n {
+            let len = (start + bs).min(n) - start;
+            let xb = ids.narrow(0, start, len)?;
+            let l = self.loss_tensor(&xb)?.to_scalar::<f32>()? as f64;
+            weighted += l * len as f64;
+            rows += len;
+            start += len;
+        }
+        Ok((weighted / rows as f64) as f32)
+    }
+
+    fn loss_tensor(&self, ids: &Tensor) -> Result<Tensor> {
+        let (b, seq) = ids.dims2()?;
+        let logits = self.forward(ids)?;
+        let pred = logits
+            .narrow(1, 0, seq - 1)?
+            .contiguous()?
+            .reshape((b * (seq - 1), self.vocab))?;
+        let tgt = ids
+            .narrow(1, 1, seq - 1)?
+            .contiguous()?
+            .reshape((b * (seq - 1),))?;
+        loss::cross_entropy(&pred, &tgt)
+    }
+
+    /// Same mini-batch protocol as `AutoregLm::train_minibatched` (ADR-0005: both
+    /// arms see identical batches in identical order for a given seed).
+    pub fn train_minibatched(
+        &mut self,
+        ids: &Tensor,
+        epochs: usize,
+        batch_size: usize,
+        lr: f64,
+        shuffle_seed: u64,
+    ) -> Result<()> {
+        let n = ids.dims2()?.0;
+        let bs = batch_size.clamp(1, n.max(1));
+        let mut opt = AdamW::new(
+            self.varmap.all_vars(),
+            ParamsAdamW {
+                lr,
+                ..Default::default()
+            },
+        )?;
+        let mut perm: Vec<u32> = (0..n as u32).collect();
+        for epoch in 0..epochs {
+            shuffle(
+                &mut perm,
+                shuffle_seed ^ (epoch as u64).wrapping_mul(0x9E37_79B9),
+            );
+            let mut start = 0;
+            while start < n {
+                let end = (start + bs).min(n);
+                let idx =
+                    Tensor::from_vec(perm[start..end].to_vec(), (end - start,), &self.device)?;
+                let xb = ids.index_select(&idx, 0)?;
+                let l = self.loss_tensor(&xb)?;
+                opt.backward_step(&l)?;
+                start = end;
+            }
+        }
+        Ok(())
+    }
+}
+
 fn shuffle(perm: &mut [u32], seed: u64) {
     let mut rng = SplitMix64::new(seed);
     for i in (1..perm.len()).rev() {
@@ -451,6 +626,34 @@ mod tests {
         assert!(after < before, "did not learn: {before} -> {after}");
         assert!(
             after < (cfg.vocab as f32).ln(),
+            "no better than uniform: {after}"
+        );
+    }
+
+    #[test]
+    fn dense_arm_per_position_shape_and_learns() {
+        // The H-01 dense baseline: per-position logits (b, seq, vocab), and the
+        // next-token loss drops below uniform — same shape + objective as AutoregLm.
+        let (vocab, seq, d, d_ff) = (256usize, 32usize, 32usize, 48usize);
+        let mut m = AutoregDenseLm::new(vocab, seq, d, d_ff, 7).unwrap();
+        let out = nat_data::run_pipeline(
+            nat_data::seed::seed_corpus(),
+            &nat_data::PipelineConfig::default(),
+        );
+        let ids = crate::corpus::sequence_windows(&out.shards, seq, 200, m.device()).unwrap();
+        let logits = m.forward(&ids).unwrap();
+        let (b, s, v) = logits.dims3().unwrap();
+        assert_eq!((s, v), (seq, vocab));
+        assert_eq!(b, ids.dims2().unwrap().0);
+        let before = m.loss_on_batched(&ids, 64).unwrap();
+        m.train_minibatched(&ids, 5, 32, 0.003, 7).unwrap();
+        let after = m.loss_on_batched(&ids, 64).unwrap();
+        assert!(
+            after < before,
+            "dense arm did not learn: {before} -> {after}"
+        );
+        assert!(
+            after < (vocab as f32).ln(),
             "no better than uniform: {after}"
         );
     }
