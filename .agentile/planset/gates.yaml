@@ -78,7 +78,14 @@ gates:
       - id: g3-gguf
         desc: GGUF round-trip; Ollama-class load (FlattenedDense export)
         met: false
-        note: out of scope for NAT-S2; item #3 / WP-1.4
+        note: >-
+          GGUF ROUND-TRIP done (2026-06-22): nat_candle::gguf + AutoregLm::export_gguf
+          write all weights as lossless F32 GGUF with NAT metadata; candle's GGUF
+          reader reads them back, values exact (gguf_export_round_trips). The
+          Ollama-class *execution* half is NOT done: the zone-partitioned NAT graph
+          is not a llama.cpp-recognized architecture, so running it in stock Ollama
+          needs a runtime arch mapping — a separate effort.
+        evidence: crates/nat-candle/src/gguf.rs ; example export_gguf
       - id: g3-routing
         desc: routing-differentiation metric beats baseline (H-02)
         met: true

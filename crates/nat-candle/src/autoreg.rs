@@ -199,6 +199,36 @@ impl AutoregLm {
             .sum()
     }
 
+    /// Export the model to a GGUF file (lossless F32) with NAT metadata
+    /// (g3-gguf / WP-1.4). The container round-trips through candle's GGUF reader.
+    pub fn export_gguf(&self, path: &std::path::Path) -> Result<()> {
+        let tensors: Vec<(String, Tensor)> = self
+            .varmap
+            .data()
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(n, v)| (n.clone(), v.as_tensor().clone()))
+            .collect();
+        let zones = self
+            .cfg
+            .zones
+            .iter()
+            .map(|z| z.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        let md = [
+            ("general.architecture", crate::gguf::s("nat-autoreg")),
+            ("general.name", crate::gguf::s("nat")),
+            ("nat.vocab", crate::gguf::u(self.cfg.vocab)),
+            ("nat.embedding_length", crate::gguf::u(self.cfg.d)),
+            ("nat.context_length", crate::gguf::u(self.cfg.seq_len)),
+            ("nat.zone_count", crate::gguf::u(self.cfg.zones.len())),
+            ("nat.zones", crate::gguf::s(&zones)),
+        ];
+        crate::gguf::export(&tensors, &md, path)
+    }
+
     /// Logits at every position: ids `(b, seq)` → `(b, seq, vocab)`.
     pub fn forward(&self, ids: &Tensor) -> Result<Tensor> {
         let (b, seq) = ids.dims2()?;
@@ -369,6 +399,50 @@ mod tests {
             after < (cfg.vocab as f32).ln(),
             "no better than uniform: {after}"
         );
+    }
+
+    #[test]
+    fn gguf_export_round_trips() {
+        // g3-gguf: export to GGUF, read back via candle's GGUF reader; every weight
+        // is present and its values match (lossless F32).
+        let cfg = AutoregConfig {
+            seq_len: 16,
+            d: 24,
+            ..AutoregConfig::byte_3zone()
+        };
+        let m = AutoregLm::new(&cfg).unwrap();
+        let path = std::env::temp_dir().join("nat_autoreg.gguf");
+        m.export_gguf(&path).unwrap();
+
+        let names = crate::gguf::tensor_names(&path).unwrap();
+        let want: std::collections::BTreeSet<String> =
+            m.varmap.data().lock().unwrap().keys().cloned().collect();
+        let got: std::collections::BTreeSet<String> = names.into_iter().collect();
+        assert_eq!(got, want, "GGUF tensor set != model varmap");
+
+        // A sampled weight round-trips exactly.
+        let orig = m
+            .varmap
+            .data()
+            .lock()
+            .unwrap()
+            .get("embedding.weight")
+            .unwrap()
+            .as_tensor()
+            .to_device(&Device::Cpu)
+            .unwrap()
+            .flatten_all()
+            .unwrap()
+            .to_vec1::<f32>()
+            .unwrap();
+        let back = crate::gguf::read_tensor(&path, "embedding.weight")
+            .unwrap()
+            .flatten_all()
+            .unwrap()
+            .to_vec1::<f32>()
+            .unwrap();
+        assert_eq!(orig, back, "embedding did not round-trip");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

@@ -18,6 +18,7 @@ pub mod cores;
 pub mod corpus;
 pub mod device;
 pub mod factory;
+pub mod gguf;
 pub mod merge_train;
 pub mod router;
 pub mod seed;
