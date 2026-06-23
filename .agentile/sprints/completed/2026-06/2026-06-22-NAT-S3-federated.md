@@ -1,8 +1,9 @@
 ---
 created: 2026-06-22T00:00:00Z
+closed: 2026-06-22T00:00:00Z
 branch: docs/nat-s3-federated
 author: Larry Klosowski (@SaulBuilds) + Claude Opus 4.8 (1M context)
-status: active
+status: completed
 sprint: NAT-S3
 ---
 
@@ -66,7 +67,44 @@ through `citrate-compute-pool`, and the production signer — is gated on that i
 is the deployment phase (WP-F3..F6). H-05b (federated ≈ centralized) is a statistical
 claim proven only by a real run.
 
-## Close-out
+## REPORT — close-out (2026-06-22)
 
-- REPORT.md citing the real-run H-05b number; update `gates.yaml` gate4 + `hypotheses.md`
-  H-05b; move to `completed/`.
+**Status: COMPLETE as a scaffold sprint.** The two in-scope WPs (WP-F1 gather/verify/
+aggregate, WP-F2 tolerance harness) are delivered and tested in `nat-federated`. The
+four infra-dependent WPs (WP-F3..F6) are **carried, gated on owner-provisioned infra**
+— they were never in this sprint's scope, which was explicitly "scaffold the testable
+core + document the path." **`gates.yaml` gate4 stays `met:false` across all four
+criteria; this close-out flips nothing.** Honest posture: the security order and the
+determinism are done and checkable today; the proof-at-scale is not, and H-05b carries
+no number until a real run produces one.
+
+### What landed (evidence — `nat-federated`, 7 tests green)
+- **WP-F1** signed gather, verify-before-compose: `gather_and_aggregate` verifies every
+  signature *before* anything enters the aggregate or the committed hash. Adversarial
+  coverage — `forged_signature_is_rejected_before_aggregation`,
+  `tampering_a_field_after_signing_fails_verification`, `unknown_node_fails_closed`
+  (all fail closed) + `valid_contributions_are_accepted_and_aggregated`. Reward total
+  is a Q16 sum; merged trace-hash is over the *sorted* accepted hashes
+  (`merged_hash_is_order_independent`) — a function of the accepted set, not arrival
+  order, so an auditor's replay is deterministic.
+- **WP-F2** H-05b tolerance harness: `within_tolerance(federated, centralized, tol)`
+  on the Q16 grid (`tolerance_accepts_within_and_rejects_outside`).
+- **Seams:** `ChainCommit` / `Settlement` traits driven by `finalize_round`
+  (commit-once-then-settle-each-accepted; `finalize_round_commits_then_settles_each_accepted`).
+  Signing is pluggable behind `Signer`/`Verifier`; a toy keyed-hash signer stands in
+  for the production operator signer the gateway already ships.
+
+### Gate / hypothesis state at close (unchanged — honest)
+- `gates.yaml` gate4: **all four exit criteria `met:false`**, each carrying a
+  `scaffold:` note recording exactly what the tests prove. `status: pending`.
+- `hypotheses.md`: **H-05b open** (statistical L3 claim; the harness exists, the number
+  comes only from a real run). H-05a remains supported (TLA+ + merge determinism test).
+
+### Carried forward (infra-gated — DO NOT start without owner go-ahead)
+- **WP-F3** on-chain commit — real `ChainCommit` against `citrate-chain`.
+- **WP-F4** settlement — real `Settlement` against `citrate-compute-pool`.
+- **WP-F5** real multi-node wall-clock gather over N nodes on disjoint shards.
+- **WP-F6** swap the toy signer for the production operator signer (ed25519 / AWS-KMS,
+  custody-signed-off in the gateway).
+These are the deployment phase and the source of the only real H-05b number; they are
+backlog item #6 (infra-gated) in the track handoff.

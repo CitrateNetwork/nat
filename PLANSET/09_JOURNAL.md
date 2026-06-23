@@ -292,3 +292,56 @@ node can inflate its own reward by editing a field after signing is not a market
 an honor system. NAT's answer is that the signature binds the contribution to the corpus
 it trained on and the trace it produced, and the gather trusts nothing it cannot verify
 against the roster. That property is now structural, not aspirational.
+
+---
+
+# 2026-06-22 — Sprint close-outs: NAT-S2, DATA-S1, NAT-S3 + the H-02 reconciliation
+
+Agentile hygiene that was overdue: three sprints whose work had landed were still
+sitting in `active/` with empty close-out stubs. This session writes their REPORTs and
+moves them to `completed/2026-06/`. The discipline point worth recording is *which
+sprint gets to claim which result* — close-out is where claim-compression sneaks in, so
+each REPORT credits only what that sprint actually delivered.
+
+## What closed
+
+**NAT-S2** (trainable end-to-end zone pass) — all five WPs delivered: the tensor-native
+spine, the differentiable merge reconciled to the hard top-k (the ADR-0006 bridge), the
+learned router, the GPU AdamW loop emitting `StepContribution`, and the real-model H-01
+ablation. Its *own* reads were honestly marginal — H-01 3/5 on synthetic, H-02 in-sample
+— and the REPORT says so plainly. The decisive verdicts are **not** NAT-S2's to claim.
+
+**DATA-S1** (real corpus) — WP-D1..D11 delivered, and this is the sprint that earned the
+two headline results: **H-01 decisive, 5/5 seeds on the 1.12M-token PD corpus** (NAT
+2.88–2.91 < dense 2.97–2.99 at equal params), and **H-02 held-out** (3.10 vs 2.63 on
+unseen prompt classes). Corpus at close: 1,120,711 tokens / 779 shards / quality 0.852 /
+0 quarantined, fail-closed license gate intact, `corpus/` still gitignored.
+
+**NAT-S3** (Gate-4 federated) — closed as a **scaffold** sprint. WP-F1 (verify-before-
+compose gather) and WP-F2 (H-05b tolerance harness) are delivered and tested (7 green in
+`nat-federated`, including the three adversarial fail-closed tests). WP-F3..F6 are
+infra-gated and carried. **gate4 stays `met:false` across all four criteria** — the
+close-out flips nothing, because the real multi-node / on-chain / settlement run hasn't
+happened and H-05b has no number until it does.
+
+## The H-02 reconciliation
+
+The earlier H-01 journal entry (and a few planset docs) called H-02 "still in-sample."
+That lagged reality: the held-out read had already merged (`nat-eval::h02_heldout`, PR
+#29) — trained router 3.10 vs L0 2.63 on prompt classes it never saw. `gates.yaml`
+g3-routing and `hypotheses.md` H-02 were already correct ("supported, held-out at L1");
+the stale lines were the older narrative ones. Fixed the one live *claim* doc (the CS-01
+case study); left the append-only journal history and the paper team's `paper/` files
+untouched. Honest caveat preserved: held-out here is on the prompt-class battery (H-02's
+natural domain), and full-scale labeled batteries are still the L2 read.
+
+## What is true now, and what is still a bet
+
+*True:* at L1 small scale, H-01 holds 5/5 on real data and H-02 holds on held-out
+prompt classes; the federated gather's security order and determinism are done and tested; three
+sprints are honestly closed with their results credited to the sprint that earned them.
+
+*Still a bet:* everything is ~20K–115K params, byte/BPE-level, ~1M tokens — not L2. The
+federated *proof-at-scale* (H-05b) is unproven until a real multi-node run; gate4 is
+correctly red. And corpus growth toward the L2 read is now the continuous research-loop /
+HERMES-S1 job, not a closed deliverable.

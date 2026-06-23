@@ -1,8 +1,9 @@
 ---
 created: 2026-06-21T00:00:00Z
+closed: 2026-06-22T00:00:00Z
 branch: docs/s2-trainable-zone-pass
 author: Larry Klosowski (@SaulBuilds) + Claude Opus 4.8 (1M context)
-status: active
+status: completed
 sprint: NAT-S2
 ---
 
@@ -123,10 +124,48 @@ explicitly necessary-not-final. If the conclusive run refutes H-01 at equal para
 the right move is to say so and change course; the scale ladder exists to learn that
 on the GB10 before any L2 commit.
 
-## Close-out (to fill at sprint close)
+## REPORT — close-out (2026-06-22)
 
-- REPORT.md citing the ticked exit lines + the conclusive H-01 number; move to
-  `completed/2026-06/`.
-- Update `gates.yaml` (g3-train / g3-routing / g3-h01) and `hypotheses.md`
-  (H-01 → supported|refuted, H-02 → supported, H-03a continuity) with evidence.
-- Next: WP-1.4 (GGUF round-trip) toward the rest of Gate 3.
+**Status: COMPLETE.** All five WPs delivered; WP-6 (deterministic-inference mode)
+deferred as the stretch it always was. The sprint's mandate — make the whole
+`NatModel` pass differentiable and train it end-to-end on the GB10 — is met, and it
+produced the *first* real H-01/H-02 reads. Those first reads were honestly marginal
+(H-01 3/5 on synthetic; H-02 in-sample); the **decisive** verdicts are not this
+sprint's to claim — they landed downstream (see "What this sprint did NOT decide").
+
+### What landed (evidence)
+- **WP-1** tensor-native trainable spine — `nat-candle::trainable`
+  (`every_param_has_gradient`, `training_reduces_loss`, CPU+GPU). Discharges WP-1.2.
+- **WP-2** differentiable merge reconciled to the hard top-k — `nat-candle::merge_train`
+  (hardening reproduces `prune_and_reweight`'s survivor set on the battery — the
+  ADR-0006 decision-faithful bridge). Discharges WP-1.2.
+- **WP-3** learned router gate, declared-edges-only invariant property-tested —
+  `nat-candle::router::LearnedRouter`; H-02 separation **11.70 vs L0 4.25** (in-sample).
+  Discharges WP-1.5.
+- **WP-4** learned embedding + GPU AdamW loop emitting `StepContribution`
+  (`reward_weight = compute × quality`); checkpoint round-trips —
+  `nat-candle::train_loop::NatTrainModel`. Discharges WP-1.2.
+- **WP-5** real `NatTrainModel` arm vs equal-param dense transformer in the H-01
+  ablation, param-matched, multi-seed, GPU, `guard_not_toy` — `nat-ablation::real`.
+  Discharges WP-1.3. **First read: HOLDS on the mean (nat 4.37 ≥ dense 3.88) but only
+  3/5 seeds — marginal on the synthetic task.**
+
+### Gate / hypothesis state at close
+- `gates.yaml`: **g3-train met:true**, **g3-routing met:true**, **g3-h01 met:true**
+  — all three carry their evidence and the honest scale caveats. (The `met:true` on
+  g3-h01 / g3-routing reflects the *downstream* decisive/held-out reads, not WP-5's
+  marginal synthetic one — see below; this REPORT does not re-flip anything.)
+- `hypotheses.md`: H-01 supported, H-02 supported, H-03a supported by construction.
+
+### What this sprint did NOT decide (handed downstream, honest posture)
+- **The decisive H-01 (5/5 seeds, real corpus)** is **DATA-S1 WP-D6**'s result
+  (`run_real_corpus_ablation`: nat 2.88–2.91 < dense 2.97–2.99), not WP-5's. WP-5's
+  3/5 synthetic read is exactly why DATA-S1 went and got real data.
+- **The held-out H-02** is the later `nat-eval::h02_heldout` read (trained 3.10 vs L0
+  2.63 on unseen prompts, PR #29 `feat/nat-h02-heldout`), not WP-3's in-sample 11.70.
+
+### Carried forward
+- WP-6 deterministic-inference / bit-faithful `output_hash` (H-03b) — stretch, open.
+- g3-gguf (GGUF round-trip + Ollama-class load) — shipped separately (PR #33,
+  round-trip half done; execution half still gated, gates.yaml g3-gguf met:false).
+- SM/CB zone widening — done at L scale in DATA-S1 WP-D11 (5-zone ladder).

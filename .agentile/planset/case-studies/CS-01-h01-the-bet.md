@@ -53,7 +53,9 @@ building toward L2; it is not yet validated *at* L2.
 ## Open threads
 - Scale: does the hold survive BPE, depth, and orders of magnitude more params/tokens?
   The scale ladder (CS-02) is encouraging, not conclusive at scale.
-- H-02 is still in-sample (trained + scored on the same battery); held-out is the real
-  routing-differentiation test.
+- H-02 held-out is now done (`nat-eval::h02_heldout`, PR #29): the trained router beats
+  the L0 baseline on prompt classes it never saw (3.10 vs 2.63), so it generalizes, not
+  memorizes. Open thread: this is held-out on the prompt-class battery; full-scale
+  labeled batteries remain the L2 read.
 - The capability proxy is 1/(held-out loss); a task-level metric (accuracy, downstream
   eval) is the stronger read once the model is big enough to have one.
