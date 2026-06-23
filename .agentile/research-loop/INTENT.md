@@ -134,6 +134,38 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
+### 2026-06-23 — param-matched vocab sweep + the GPU was never on (WP-D5, Claude, manual)
+- **Param-matched sweep** (`param_matched_bpe_sweep` example, **genuinely on GPU** —
+  `is_cuda=true` verified): fix a ~500K param budget, binary-search width `d` per vocab so
+  every model has equal params; only the embedding-vs-compute split varies. Held-out
+  bits/byte (8 epochs, 24k/6k):
+
+  | vocab | d | params | bytes/tok | bits/byte |
+  |------:|--:|-------:|----------:|----------:|
+  | 1024 | 135 | 498,232 | 1.970 | 2.351 |
+  | 2048 |  95 | 500,896 | 2.216 | 2.236 |
+  | 4096 |  56 | 501,323 | 2.433 | 2.180 |
+  | 8192 |  29 | 493,858 | 2.624 | 2.157 |
+
+- **Finding**: at *equal params*, bits/byte still falls monotonically with vocab — so the
+  tokenizer effect is **real**, not just the param-count confound. BUT diminishing returns
+  are sharp: 1024→2048 buys 0.116, 2048→4096 0.055, **4096→8192 only 0.023**. The knee is
+  ~4096 (mirrors the compression curve). The `d` column shows the tradeoff: vocab 8192
+  starves its cores to a 29-wide model to feed the embedding table — near the point where
+  shrinking `d` starts to cost more than the tokenizer buys. **Recommended default: vocab
+  ~4096** — ~95% of the bits/byte benefit, balanced compute width.
+- **OPERATIONAL — prior "GPU" runs were silently on CPU.** `Device::cuda_if_available`
+  returns CPU on any CUDA error and candle falls back without complaint; ollama had two
+  models pinned (`qwen2.5:72b` 48 GB + `llama3.1` 5.5 GB) holding ~53 GB of the GB10's
+  unified pool, so **CUDA context creation OOM'd → CPU fallback**. `nvidia-smi` looked idle
+  (1% util) because the memory was *reserved, not computing*. After `ollama stop` (both),
+  `is_cuda=true`, util 1%→92%, power 15W→50W. **Correction**: the same-day vocab-1024 and
+  vocab-8192 BPE-LM runs below ran on **candle-cpu**, not GPU as their entries say — the
+  bits/byte numbers stand (same F32 candle ops, device-independent to ~3 dp) but the device
+  label was wrong. Lesson: run `scripts/dgx-gpu.sh probe` (it asserts `is_cuda`, panics on
+  fallback) BEFORE claiming a GPU run; free the unified pool first.
+- **Next**: per-position autoregressive LM (WP-D7); computation-lineage PD primaries.
+
 ### 2026-06-23 — BPE vocab sweep on corpus-v3 + batched-eval OOM fix (WP-D5, Claude, manual)
 - **Vocab sweep, compression** (bytes/token on corpus-v3): **1.97 @1024 → 2.43 @4096 →
   2.62 @8192.** Diminishing returns: the 4× step (1024→4096) bought +0.46 B/tok; the 2×
