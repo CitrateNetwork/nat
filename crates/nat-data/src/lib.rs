@@ -179,8 +179,14 @@ pub fn run_pipeline_with_scorer(
 ) -> PipelineOutput {
     let mut quarantine: Vec<Quarantined> = Vec::new();
     let mut kept: Vec<Document> = Vec::new();
-    // Shingle sets of kept docs, for near-dup detection.
+    // Shingle sets of kept docs, kept for EXACT jaccard verification of near-dup
+    // candidates. Candidates come from an LSH index (below) so we never do the old
+    // O(n^2) scan-against-all-kept — at ~70k docs that was ~2.4B comparisons.
     let mut kept_shingles: Vec<std::collections::BTreeSet<u64>> = Vec::new();
+    // MinHash/LSH index: band-bucket key -> kept-doc indices. Two docs are near-dup
+    // CANDIDATES iff they collide in >=1 band; the exact jaccard below confirms, so
+    // false collisions cost only a verify and the threshold semantics are unchanged.
+    let mut lsh: std::collections::HashMap<u64, Vec<usize>> = std::collections::HashMap::new();
     let mut seen_exact: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     // Process in a deterministic order (by id) so dedup "keep first" is stable
@@ -235,9 +241,21 @@ pub fn run_pipeline_with_scorer(
             continue;
         }
         let shingles = shingle_set(&text);
-        if kept_shingles
+        let sig = minhash_signature(&shingles);
+        // LSH candidate set: any kept doc colliding in >=1 band. Verify each with the
+        // exact jaccard so the >= threshold rule is identical to the old full scan.
+        let bands = band_keys(&sig);
+        let mut candidates: Vec<usize> = bands
             .iter()
-            .any(|prev| jaccard(prev, &shingles) >= cfg.near_dup_threshold)
+            .filter_map(|bk| lsh.get(bk))
+            .flatten()
+            .copied()
+            .collect();
+        candidates.sort_unstable();
+        candidates.dedup();
+        if candidates
+            .iter()
+            .any(|&c| jaccard(&kept_shingles[c], &shingles) >= cfg.near_dup_threshold)
         {
             quarantine.push(Quarantined {
                 doc_id: rd.id,
@@ -268,6 +286,10 @@ pub fn run_pipeline_with_scorer(
         let token_count = tokenize_count(&text);
 
         seen_exact.insert(exact_key);
+        let idx = kept_shingles.len();
+        for bk in band_keys(&sig) {
+            lsh.entry(bk).or_default().push(idx);
+        }
         kept_shingles.push(shingles);
         kept.push(Document {
             id: rd.id,
@@ -400,6 +422,53 @@ fn shingle_set(s: &str) -> std::collections::BTreeSet<u64> {
     set
 }
 
+// MinHash/LSH for near-dup blocking. K hashes split into B bands of R rows; two docs
+// collide in a band iff their R minhash values match there. At the default threshold
+// 0.8, P(collide in >=1 band) = 1-(1-0.8^4)^32 ≈ 1 - 1.7e-7 — effectively no missed
+// near-dup — while a dissimilar pair almost never collides, so verification stays cheap.
+const MINHASH_K: usize = 128;
+const LSH_ROWS: usize = 4;
+const LSH_BANDS: usize = MINHASH_K / LSH_ROWS;
+
+/// 64-bit avalanche mix (SplitMix64 finalizer) — the per-hash permutation family.
+fn mix64(mut x: u64) -> u64 {
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^ (x >> 31)
+}
+
+/// MinHash signature of a shingle set. An empty set yields the all-MAX signature, so
+/// empty-shingle docs collide with each other (matching the old jaccard(∅,∅)=1 rule)
+/// and with nothing else.
+fn minhash_signature(shingles: &std::collections::BTreeSet<u64>) -> [u64; MINHASH_K] {
+    let mut sig = [u64::MAX; MINHASH_K];
+    for &s in shingles {
+        for (k, slot) in sig.iter_mut().enumerate() {
+            let h = mix64(s ^ (k as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+            if h < *slot {
+                *slot = h;
+            }
+        }
+    }
+    sig
+}
+
+/// One bucket key per band (band index folded in so bands don't alias).
+fn band_keys(sig: &[u64; MINHASH_K]) -> [u64; LSH_BANDS] {
+    let mut keys = [0u64; LSH_BANDS];
+    for (b, key) in keys.iter_mut().enumerate() {
+        let mut h = 0xcbf2_9ce4_8422_2325u64 ^ (b as u64);
+        for r in 0..LSH_ROWS {
+            h ^= sig[b * LSH_ROWS + r];
+            h = h.wrapping_mul(0x0000_0001_0000_01b3);
+        }
+        *key = h;
+    }
+    keys
+}
+
 fn jaccard(a: &std::collections::BTreeSet<u64>, b: &std::collections::BTreeSet<u64>) -> Q16 {
     if a.is_empty() && b.is_empty() {
         return Q16::ONE;
@@ -501,6 +570,37 @@ mod tests {
         let reasons: Vec<&QuarantineReason> = out.quarantine.iter().map(|q| &q.reason).collect();
         assert!(reasons.contains(&&QuarantineReason::ExactDuplicate));
         assert!(reasons.contains(&&QuarantineReason::NearDuplicate));
+    }
+
+    #[test]
+    fn lsh_near_dup_found_across_many_distinct_docs() {
+        // The LSH index must catch a near-dup of an EARLY doc even with many distinct
+        // docs in between — i.e. it really indexes, it doesn't just compare neighbours.
+        // (This is the scenario the old O(n^2) scan handled and the LSH must preserve.)
+        let cfg = PipelineConfig::default();
+        let base =
+            "the cartographer folded the worn map twice and set it down beside the dim lantern";
+        let mut docs = vec![raw("doc_000_orig", base)];
+        for i in 1..60 {
+            docs.push(raw(
+                &format!("doc_{i:03}"),
+                &format!("distinct sentence number {i} about orbital mechanics and tidal forces on moon {i}"),
+            ));
+        }
+        // id sorts last → processed after all 60 distinct docs are kept.
+        docs.push(raw("doc_zzz_neardup", &format!("{base} quietly")));
+        let out = run_pipeline(docs, &cfg);
+        let near: Vec<&str> = out
+            .quarantine
+            .iter()
+            .filter(|q| matches!(q.reason, QuarantineReason::NearDuplicate))
+            .map(|q| q.doc_id.as_str())
+            .collect();
+        assert_eq!(
+            near,
+            vec!["doc_zzz_neardup"],
+            "LSH missed the distant near-dup"
+        );
     }
 
     #[test]

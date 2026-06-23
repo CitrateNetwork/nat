@@ -28,8 +28,6 @@ const SEQ_LEN: usize = 64;
 const EPOCHS: usize = 8;
 const BATCH: usize = 64;
 const LR: f64 = 0.003;
-const MAX_WINDOWS: usize = 30_000;
-const SEEDS: [u64; 5] = [1, 2, 3, 4, 5];
 
 fn nat_cfg(d: usize, vocab: usize, seed: u64) -> AutoregConfig {
     AutoregConfig {
@@ -77,14 +75,18 @@ fn main() {
     let (dir, bpe_path) = match (args.next(), args.next()) {
         (Some(d), Some(b)) => (d, b),
         _ => {
-            eprintln!("usage: h01_autoreg_bpe <corpus-dir> <bpe.json> [target_params]");
+            eprintln!(
+                "usage: h01_autoreg_bpe <corpus-dir> <bpe.json> [target_params] [max_windows] [n_seeds]"
+            );
             std::process::exit(2);
         }
     };
-    let target: usize = args
-        .next()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1_000_000);
+    let target: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(1_000_000);
+    // max_windows caps training sequences. Scale it with target params on a larger
+    // corpus, or the bigger model starves and overfits (the whole point of corpus-v4).
+    let max_windows: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(30_000);
+    let n_seeds: u64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(5);
+    let seeds: Vec<u64> = (1..=n_seeds).collect();
 
     let bpe = Bpe::load(std::path::Path::new(&bpe_path)).unwrap();
     let vocab = bpe.vocab_size();
@@ -120,7 +122,7 @@ fn main() {
         &shards,
         &bpe,
         SEQ_LEN,
-        MAX_WINDOWS,
+        max_windows,
         AutoregLm::new(&nat_cfg(d, vocab, 1)).unwrap().device(),
     )
     .unwrap();
@@ -129,8 +131,9 @@ fn main() {
     let xtr = ids.narrow(0, 0, n_tr).unwrap();
     let xva = ids.narrow(0, n_tr, n - n_tr).unwrap();
     println!(
-        "  sequences: {n_tr} train / {} val; {EPOCHS} epochs, batch {BATCH}, lr {LR}\n",
-        n - n_tr
+        "  sequences: {n_tr} train / {} val (cap {max_windows}); {EPOCHS} epochs, batch {BATCH}, lr {LR}, {} seeds\n",
+        n - n_tr,
+        seeds.len()
     );
     println!(
         "  {:>4}  {:>10}  {:>10}  {:>8}",
@@ -141,7 +144,7 @@ fn main() {
     let (mut nat_cpps, mut dense_cpps) = (Vec::new(), Vec::new());
     let mut holds = 0usize;
 
-    for &seed in &SEEDS {
+    for &seed in &seeds {
         let mut nat = AutoregLm::new(&nat_cfg(d, vocab, seed)).unwrap();
         nat.train_minibatched(&xtr, EPOCHS, BATCH, LR, seed)
             .unwrap();
@@ -174,6 +177,6 @@ fn main() {
     println!(
         "\n  mean cap/param: NAT {nat_mean:.4e}  dense {dense_mean:.4e}  ->  H-01 {}  ({holds}/{} seeds NAT<dense)",
         if h01 { "HOLDS" } else { "REFUTED" },
-        SEEDS.len()
+        seeds.len()
     );
 }
