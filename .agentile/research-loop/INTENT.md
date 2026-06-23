@@ -134,6 +134,35 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
+### 2026-06-22 — code & craft cycle: the CX zone (Claude, manual; pre-Hermes)
+- **Intent addressed**: the latest bottleneck — *"add code (CX) and more reasoning/
+  logic"*. Pillar III (a good coder) was the most under-served zone; this cycle grows it.
+- **Sourced** (permissive, no approval needed — MIT/Apache):
+  - **The Rust Book** (`rust-lang/book`, MIT/Apache) — markdown prose on the craft +
+    idioms of code; the literal "rules of the room" for a coder → `from-text` (550 passages).
+  - **Idiomatic crates** `dtolnay/anyhow`, `rust-itertools/itertools`, `serde-rs/serde`
+    (all MIT/Apache) — real Rust source for the CX lexical signal → `from-code`
+    (37+76+237 files → 1546 passages).
+- **Refined**: combined with the values-spine inputs → one unified corpus (`corpus-v2`):
+  **1,698,676 tokens** (was 1.12M; **+52%**) / 4615 kept docs / 1539 shards /
+  aggregate_quality **0.831**. Quarantined 303 (exact_dup ×264 — code boilerplate/
+  headers; pii_detected ×32 — emails in code; near_dup ×4; too_short ×3). **0 license
+  quarantines — the fail-closed allow-list passed every source clean.**
+- **Trained** (GPU `candle-cuda`, byte-LM 3-zone, 20718 params, 160K/40K split):
+  held-out **4.442 → 4.242 bits/byte across 8 epochs, monotonic, no overfit** (uniform 8.0).
+- **Honest read (H-01 in view)**: 4.242 is **+0.22 bits/byte vs the prose-only 1.12M
+  corpus's 4.02** — *expected and not a regression*. Code is higher-entropy than prose for
+  a tiny byte-LM, and bits/byte is **not comparable across different corpora** (the held-out
+  distribution is now broader/harder). The honest signal is "trains cleanly, monotonic, no
+  overfit on a 52%-bigger, genuinely harder distribution." A true H-01 re-read means
+  re-running the **NAT-vs-dense ablation on `corpus-v2`** — that is the next rung, not this
+  daily grow.
+- **Built**: `scripts/fetch-code-craft.sh` (recipe committed; data gitignored; Hermes-
+  automatable, capsules corpus-fetch/normalize).
+- **Next**: re-run the conclusive H-01 ablation on `corpus-v2`; BPE on the grown corpus;
+  computation-lineage PD primaries (Lovelace, Turing); SICP (CC-BY-SA, on the allow-list)
+  pending owner confirmation of the kickoff "hold CC-BY-SA for review".
+
 ### 2026-06-22 — first real cycle (Claude, manual; pre-Hermes)
 - **Sourced**: Gutenberg (PD) — 1342 Pride & Prejudice (narrative/HP), 5827 Problems
   of Philosophy (logic/language/PF), 41654 Intro to Mathematical Philosophy (math/PF).

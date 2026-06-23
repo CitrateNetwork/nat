@@ -47,9 +47,9 @@ explainer (we own the framing) · `⚠` verify license before fetch.
 
 | Work | Status | Source |
 |------|--------|--------|
-| Abelson & Sussman — *Structure and Interpretation of Computer Programs* (SICP) | ✓ | **CC-BY-SA-4.0** — text repo (needs a markdown/text ingest path) |
-| *The Rust Programming Language* (the Book) | ✓ | **MIT/Apache** — `rust-lang/book` (markdown) |
-| Permissive source repos (MIT/Apache/BSD) | ✓ | **`nat-corpus from-code`** — proven on `rust-lang/log` |
+| Abelson & Sussman — *Structure and Interpretation of Computer Programs* (SICP) | ✓ | **CC-BY-SA-4.0** — text repo; on the allow-list but kickoff held CC-BY-SA "for review" — owner to confirm before fetch (markdown via `from-text`) |
+| *The Rust Programming Language* (the Book) | ✅ done | **MIT/Apache** — `rust-lang/book` markdown → `from-text` (550 passages, 2026-06-22) |
+| Permissive source repos (MIT/Apache/BSD) | ✅ | **`nat-corpus from-code`** — `rust-lang/log` + **anyhow, itertools, serde (MIT/Apache, 2026-06-22)**; `scripts/fetch-code-craft.sh` |
 | The Unix philosophy; "worse is better"; "do one thing well" | `©→CC0` | authored explainer (planned) |
 | IETF RFCs (e.g. RFC 1925 *Twelve Networking Truths*) | ⚠ | IETF Trust license — verify |
 
