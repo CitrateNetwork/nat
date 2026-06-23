@@ -400,3 +400,51 @@ loop is now a committed, Hermes-automatable recipe (`scripts/fetch-code-craft.sh
 refute. bits/byte and cap/param are not comparable across different corpora, so the only
 honest cross-corpus claim is "the NAT-over-dense gap reproduces," not "the model got
 better." If the L2 run refutes H-01, change course.
+
+---
+
+# 2026-06-22 — BPE retrained at corpus-v3 scale: the ratio dipped where the corpus got harder
+
+## What I did
+
+Re-ran the BPE tokenizer (WP-D5) on `corpus-v3` — the 1.91M-token corpus that now carries
+the Rust Book, three permissive crates, and SICP on top of the prose values-spine. The
+raw combined JSONL that originally built v3 had been cleaned off disk (it lives in the
+gitignored `./corpus/code-craft/`), so rather than re-clone every source over the network
+I rebuilt the RawDoc JSONL **directly from the 1688 persisted shards**. That reconstruction
+is byte-exact: 5064 docs, 1,914,943 tokens — the manifest's numbers to the token. It also
+means the BPE trains on the *post-pipeline* text the model actually consumes, which is the
+more honest basis than the pre-normalize raw JSONL the first BPE used.
+
+## The result
+
+Compression: **1.97 bytes/token @ vocab 1024** (was 1.99), **2.43 @ vocab 4096** (was 2.38).
+The vocab-1024 BPE autoregressive LM (GPU `candle-cuda`, 127,699 params, seq_len 64, 24k/6k
+split) descended **3.106 → 2.505 bits/byte over 8 epochs, monotonic, no overfit climb-back**.
+BPE and LM both encode the same v3 shards, so the run is self-consistent.
+
+The headline number went the "wrong" way: 2.505 bits/byte against the prose-only corpus's
+prior 2.37, and the 4096 ratio rose. That is the corpus, not the model. A bigger *merge*
+budget has to cover Scheme and Rust now, so it spreads thinner; code is higher-entropy than
+prose for a tiny byte/BPE model, so it lifts the floor — the same tell the H-01 grow saw
+when losses rose ~2.9 → ~3.1. The thing that matters is the descent stayed clean and
+monotone on the harder distribution.
+
+## The durable lesson
+
+A compression ratio is only a number against a fixed corpus. When the corpus changes under
+you, "bits/byte went up" is not a regression and "bytes/token went down" is not a win —
+both are mostly statements about the new text's entropy. The honest cross-corpus claim is
+about *shape*: the BPE→LM recipe still descends monotonically with no overfit when the data
+gets adversarially harder. That is the property that has to survive to L2; the absolute
+number does not transfer.
+
+## What is true now, and what is still a bet
+
+*True:* BPE retrains cleanly at the v3 scale on the exact shard content; vocab-1024
+compression held (1.97 bytes/tok) and the LM descent is monotone+overfit-free on a corpus
+that now spans prose, Rust, and Scheme.
+
+*Still a bet:* still ~128K params, vocab 1024, ~2M tokens — L1 scale. Larger vocab and the
+per-position autoregressive LM (WP-D7) are the next rungs; L2 (real depth + far more tokens)
+remains the question that could refute the whole zone bet.

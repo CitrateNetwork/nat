@@ -87,4 +87,16 @@ echo ">> running the pipeline (code-craft only)"
 #       "$OUT/values-spine/latex-primaries.jsonl" \
 #       "$JSONL" > "$WORK/values-spine-plus-code.jsonl"
 #   "$BIN" run --input "$WORK/values-spine-plus-code.jsonl" --out "$OUT/values-spine/corpus-v3"
+#
+# Then retrain the BPE tokenizer (WP-D5) on that same combined input and report
+# compression. corpus-v3 measured (2026-06-22, see research-loop/INTENT.md standup):
+#   1.97 bytes/token @ vocab 1024 ; 2.43 @ vocab 4096.
+#   "$BIN" train-bpe --input "$WORK/values-spine-plus-code.jsonl" --vocab 1024 \
+#       --out "$OUT/values-spine/bpe-1024-v3.json"
+#   "$BIN" train-bpe --input "$WORK/values-spine-plus-code.jsonl" --vocab 4096 \
+#       --out "$OUT/values-spine/bpe-4096-v3.json"
+# The BPE-LM payoff (held-out bits/byte) trains on the built corpus dir, not the JSONL:
+#   scripts/dgx-gpu.sh run -p nat-candle --features cuda --example train_autoreg_bpe -- \
+#       "$OUT/values-spine/corpus-v3"/<config-hash> "$OUT/values-spine/bpe-1024-v3.json"
+#   # corpus-v3: held-out 3.106 -> 2.505 bits/byte over 8 epochs, monotonic, no overfit.
 echo ">> done. code-craft corpus under $WORK/corpus/"
