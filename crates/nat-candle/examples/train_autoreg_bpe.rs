@@ -59,7 +59,9 @@ fn main() {
         model
             .train_minibatched(&xtr, 1, 64, 0.003, 2026 ^ epoch as u64)
             .unwrap();
-        let l = model.loss_on(&xva).unwrap();
+        // Batched eval: a single full-val forward materializes a (n_val, seq, vocab)
+        // logit tensor that OOMs the GPU at large vocab. Same number, bounded memory.
+        let l = model.loss_on_batched(&xva, 64).unwrap();
         println!(
             "  epoch {}: held-out {:.4} nats/token ({:.3} bits/byte)",
             epoch + 1,

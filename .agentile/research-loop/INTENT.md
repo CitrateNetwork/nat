@@ -134,6 +134,28 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
+### 2026-06-23 — BPE vocab sweep on corpus-v3 + batched-eval OOM fix (WP-D5, Claude, manual)
+- **Vocab sweep, compression** (bytes/token on corpus-v3): **1.97 @1024 → 2.43 @4096 →
+  2.62 @8192.** Diminishing returns: the 4× step (1024→4096) bought +0.46 B/tok; the 2×
+  step (4096→8192) only +0.19 (tokens fell just 7.3% for 4096 extra merges). On this
+  corpus the knee is ~4096; 8192 is into the rare-symbol long tail (code identifiers /
+  Scheme tokens that don't repeat enough to earn a slot).
+- **BPE-LM held-out bits/byte** (GPU path, 8 epochs, 24k/6k split):
+  - vocab 1024 (127,699 params): **3.106 → 2.505**, monotonic, no overfit.
+  - vocab 8192 (822,995 params): **2.463 → 2.096**, monotonic, no overfit.
+- **Honest read (confounded)**: 8192's 2.096 < 1024's 2.505, but the vocab-8192 LM is a
+  **6.4× bigger model** — the embedding + output tables scale with vocab (695K of the
+  extra params are vocab-tied). So the lower bits/byte is mostly *more parameters*, not a
+  cleaner tokenizer; you'd have to hold params fixed to isolate the tokenizer effect. The
+  un-confounded read stays "the recipe descends monotonically, overfit-free."
+- **Bug fixed**: the BPE-LM eval did one full-val forward (`loss_on`), materializing a
+  `(6000, 64, vocab)` logit tensor — ~12.6 GB at vocab 8192, which **OOM'd the GPU and
+  took the box down**. Added `AutoregLm::loss_on_batched` (64-seq minibatched eval, row-
+  weighted mean = exact same number; unit-tested vs `loss_on`); example now uses it.
+  Also: these small models are CPU-bound in this candle build — the 822K run took ~2h.
+- **Next**: per-position autoregressive LM (WP-D7); param-matched vocab comparison if the
+  tokenizer effect needs isolating; computation-lineage PD primaries (Lovelace, Turing).
+
 ### 2026-06-22 — BPE retrained at corpus-v3 scale (WP-D5, Claude, manual)
 - **Retrained the BPE tokenizer on `corpus-v3`** (1.91M tokens / 5064 docs / 12.03 MB),
   training on the exact post-pipeline shard text (reconstructed the v3 RawDoc JSONL from
