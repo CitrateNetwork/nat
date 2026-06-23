@@ -134,6 +134,23 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
+### 2026-06-22 — BPE retrained at corpus-v3 scale (WP-D5, Claude, manual)
+- **Retrained the BPE tokenizer on `corpus-v3`** (1.91M tokens / 5064 docs / 12.03 MB),
+  training on the exact post-pipeline shard text (reconstructed the v3 RawDoc JSONL from
+  the 1688 shards — network-free, byte-exact: 5064 docs, 1,914,943 tokens reproduced).
+  Compression: **1.97 bytes/token @ vocab 1024** (was 1.99), **2.43 @ 4096** (was 2.38).
+- **BPE autoregressive LM on `corpus-v3`** (GPU `candle-cuda`, vocab 1024, 127,699 params,
+  seq_len 64, 24k/6k split, 8 epochs): held-out **3.106 → 2.505 bits/byte, monotonic, no
+  overfit climb-back**. BPE + LM both encode the same v3 shards (self-consistent).
+- **Honest read**: the 4096 ratio *rose* (2.38→2.43) and the LM bits/byte is **+0.135 vs
+  the prose-only 2.37** — both the harder distribution, not a regression. corpus-v3 carries
+  Rust + SICP **Scheme** code; a larger merge budget spreads thinner and code raises the
+  entropy floor, exactly as the H-01 grow noted. bits/byte is **not comparable across
+  different corpora** — the durable claim is "the BPE recipe scales cleanly to the harder
+  corpus (monotone descent, no overfit)," not "the model got better."
+- **Next**: BPE at larger vocab/scale on v3; per-position autoregressive LM (WP-D7);
+  computation-lineage PD primaries (Lovelace, Turing).
+
 ### 2026-06-22 — SICP + H-01 re-confirmed on the grown corpus (Claude, manual)
 - **Sourced**: **SICP** (Abelson & Sussman) from `sarabander/sicp` — the book HTML is
   explicitly **CC-BY-SA-4.0** (owner approved the CC-BY-SA fetch). Tag-stripped the 39
