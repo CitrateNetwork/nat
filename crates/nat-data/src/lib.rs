@@ -26,10 +26,12 @@ pub mod bpe;
 pub mod code;
 pub mod gutenberg;
 pub mod jsonl;
+pub mod latex;
 pub mod manifest;
 pub mod persist;
 pub mod quality;
 pub mod seed;
+pub mod text;
 pub mod tokenizer;
 pub mod zonetag;
 

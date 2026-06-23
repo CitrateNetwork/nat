@@ -15,7 +15,8 @@
 //!              [--min-len N] [--max-len N] [--near-dup F] [--seed N]
 
 use nat_data::{
-    bpe, code, gutenberg, jsonl, persist, run_pipeline, PipelineConfig, QuarantineReason,
+    bpe, code, gutenberg, jsonl, latex, persist, run_pipeline, text, PipelineConfig,
+    QuarantineReason,
 };
 use nat_types::Q16;
 use std::collections::BTreeMap;
@@ -33,6 +34,7 @@ fn main() {
         Some("from-gutenberg") => cmd_from_gutenberg(rest),
         Some("from-code") => cmd_from_code(rest),
         Some("train-bpe") => cmd_train_bpe(rest),
+        Some("from-text") => cmd_from_text(rest),
         Some("--help") | Some("-h") | None => {
             usage();
             0
@@ -54,7 +56,8 @@ fn usage() {
            nat-corpus emit-seed --out <file.jsonl>\n  \
            nat-corpus from-gutenberg --id <N> [--input <file|->] [--out <jsonl|->] [--append] [--target-chars N]\n  \
            nat-corpus from-code --dir <repo> --license <SPDX> [--source <name>] [--out <jsonl|->] [--append] [--target-chars N] [--max-line-len N]\n  \
-           nat-corpus train-bpe --input <jsonl> --vocab <N> --out <bpe.json>\n\n\
+           nat-corpus train-bpe --input <jsonl> --vocab <N> --out <bpe.json>\n  \
+           nat-corpus from-text --input <file|-> --license <SPDX> --source <name> [--id-prefix P] [--strip latex] [--out <jsonl|->] [--append] [--target-chars N]\n\n\
          run config flags (defaults from PipelineConfig::default):\n  \
            --shard-size N   --min-quality F   --min-len N   --max-len N\n  \
            --near-dup F     --seed N\n"
@@ -369,6 +372,96 @@ fn cmd_train_bpe(args: &[String]) -> i32 {
         bpe.vocab_size()
     );
     0
+}
+
+fn cmd_from_text(args: &[String]) -> i32 {
+    let f = flags(args);
+    let license = require(&f, "license").to_string();
+    if !nat_data::ALLOWED_LICENSES.contains(&license.as_str()) {
+        eprintln!(
+            "nat-corpus: license '{license}' not allow-listed.\n  allowed: {}",
+            nat_data::ALLOWED_LICENSES.join(", ")
+        );
+        return 2;
+    }
+    let source = require(&f, "source").to_string();
+    let id_prefix = f
+        .get("id-prefix")
+        .cloned()
+        .unwrap_or_else(|| source.clone());
+    let target_chars: usize = f
+        .get("target-chars")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2000);
+    let fetch_date = f.get("fetch-date").cloned().unwrap_or_else(today);
+
+    // Read the document from --input (a file) or stdin.
+    let mut raw = match f.get("input").map(String::as_str) {
+        Some(p) if p != "-" => match std::fs::read_to_string(p) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("nat-corpus: reading {p}: {e}");
+                return 1;
+            }
+        },
+        _ => {
+            let mut s = String::new();
+            if let Err(e) = std::io::stdin().read_to_string(&mut s) {
+                eprintln!("nat-corpus: reading stdin: {e}");
+                return 1;
+            }
+            s
+        }
+    };
+    if f.get("strip").map(String::as_str) == Some("latex") {
+        raw = latex::strip(&raw);
+    }
+
+    let docs = text::to_rawdocs(
+        &id_prefix,
+        &source,
+        &license,
+        &fetch_date,
+        &raw,
+        target_chars,
+    );
+    if docs.is_empty() {
+        eprintln!("nat-corpus: produced 0 passages");
+        return 1;
+    }
+
+    let out = f.get("out").map(String::as_str).unwrap_or("-");
+    let append = f.contains_key("append");
+    let res = if out == "-" {
+        jsonl::write_rawdocs(std::io::stdout().lock(), &docs)
+    } else {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(append)
+            .write(true)
+            .truncate(!append)
+            .open(out);
+        match file {
+            Ok(file) => jsonl::write_rawdocs(std::io::BufWriter::new(file), &docs),
+            Err(e) => {
+                eprintln!("nat-corpus: opening {out}: {e}");
+                return 1;
+            }
+        }
+    };
+    match res {
+        Ok(()) => {
+            eprintln!(
+                "from-text {source} [{license}]: {} passages -> {out}",
+                docs.len()
+            );
+            0
+        }
+        Err(e) => {
+            eprintln!("nat-corpus: writing {out}: {e}");
+            1
+        }
+    }
 }
 
 fn cmd_run(args: &[String]) -> i32 {
