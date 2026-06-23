@@ -1,0 +1,18 @@
+# nat-federated — Gate-4 federated proof: signed multi-node gather → on-chain
+# trace-hash commit → compute-pool settlement. The gather/verify/aggregate core is
+# pure and testable here; the on-chain and settlement seams are traits whose real
+# impls live against citrate-chain and citrate-compute-pool.
+[package]
+name = "nat-federated"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+nat-types.workspace = true
+nat-train.workspace = true
+sha2.workspace = true

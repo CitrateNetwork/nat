@@ -721,6 +721,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nat-federated"
+version = "0.0.1"
+dependencies = [
+ "nat-train",
+ "nat-types",
+ "sha2",
+]
+
+[[package]]
 name = "nat-mcp"
 version = "0.0.1"
 dependencies = [

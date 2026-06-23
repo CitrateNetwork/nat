@@ -246,3 +246,49 @@ The corpus build is `scripts/fetch-values-spine.sh` (data lands in gitignored
 code-aware normalize (WP-D8), `from-pdf` for Boole/Tractatus/SICP (WP-D9), then bigger
 with committed compute. Keep your eye on H-01 at every rung. If it ever stops holding,
 say so — that is the whole discipline.
+
+---
+
+# 2026-06-22 — Gate-4 scaffold: the federated proof, verify-before-compose
+
+Gate-4 is the L3 milestone — the point where NAT stops being a single-box training
+loop and becomes the thing the whitepaper promises: nodes train toward a shared model,
+submit *signed* contributions, and a gather reconciles them into one on-chain-committed,
+compute-pool-settled result. That milestone needs real infrastructure (multiple
+wall-clock nodes, citrate-chain, citrate-compute-pool, the production operator signer).
+What it does *not* need to wait on is the security and determinism core — and that is
+what this sprint (NAT-S3) lands, in the new `nat-federated` crate.
+
+## What is true now
+
+The gather core is real and tested. `gather_and_aggregate` verifies every node's
+signature **before** anything enters the aggregate (g4-gather): a forged signature, a
+field tampered after signing, or an unknown node all fail closed and contribute nothing
+to the reward total or the committed hash. The four tests that matter are the adversarial
+ones — `forged_signature_is_rejected_before_aggregation`,
+`tampering_a_field_after_signing_fails_verification`, `unknown_node_fails_closed`. The
+reward total is a Q16.16 sum and the merged trace-hash is over the *sorted* accepted
+hashes, so the result is a function of the accepted set, not arrival order
+(`merged_hash_is_order_independent`) — the determinism an auditor's replay depends on.
+
+The on-chain commit and the settlement are `ChainCommit` / `Settlement` traits, driven
+by `finalize_round` (commit once, then settle each accepted node). H-05b — federated ≈
+centralized — is a `within_tolerance` harness on the Q16 grid. Signing is pluggable
+behind `Signer`/`Verifier`, with a toy keyed-hash signer standing in for the operator
+ed25519/KMS signer the gateway already ships.
+
+## What is still gated
+
+Everything that needs the infra: the real impls of `ChainCommit` (citrate-chain) and
+`Settlement` (citrate-compute-pool), the multi-node wall-clock gather, and swapping the
+toy signer for the production one (WP-F3..F6). H-05b is a statistical claim — the harness
+exists, but the number only comes from a real run. So `gates.yaml` gate4 stays
+`met: false` across the board, with `scaffold:` notes recording exactly what the tests
+already prove. The honest posture again: the security order and the determinism are
+done and checkable today; the proof-at-scale is not, and we say so.
+
+The verify-before-compose order is the whole point. A federated training market where a
+node can inflate its own reward by editing a field after signing is not a market — it is
+an honor system. NAT's answer is that the signature binds the contribution to the corpus
+it trained on and the trace it produced, and the gather trusts nothing it cannot verify
+against the roster. That property is now structural, not aspirational.

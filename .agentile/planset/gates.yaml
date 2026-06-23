@@ -112,19 +112,26 @@ gates:
     name: Federated proof
     rung: L3
     status: pending
+    # Core scaffolded in nat-federated (sprint NAT-S3). The `met` flags stay false
+    # until the real multi-node + on-chain + compute-pool run lands (WP-F3..F6); the
+    # `scaffold` notes record what is already proven in tests.
     exit_criteria:
       - id: g4-gather
         desc: multi-node async signed gather; signatures verify before composition
         met: false
+        scaffold: nat-federated::gather_and_aggregate — verify-before-compose; forged/tampered/unknown-node all fail closed (tested)
       - id: g4-tolerance
         desc: federated result matches centralized within tolerance (H-05)
         met: false
+        scaffold: nat-federated::within_tolerance — H-05b harness on the Q16 grid (tested); needs the real run
       - id: g4-onchain
         desc: on-chain trace-hash commit + auditor replay reproduces output hash
         met: false
+        scaffold: nat-federated::ChainCommit seam + order-independent merge_trace_hashes (tested); impl gated on citrate-chain
       - id: g4-settlement
         desc: contribution settles via compute-pool (compute × quality → reward weight)
         met: false
+        scaffold: nat-federated::Settlement seam + finalize_round (commit-then-settle, tested); impl gated on citrate-compute-pool
         evidence_target: docs/SETTLEMENT_SEAM.md
 
   - id: gate5
