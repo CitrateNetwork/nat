@@ -31,6 +31,17 @@ trace serializes deterministically (stable field order, fixed-point values encod
 integers, no hash-map iteration) so the same trace always hashes to the same digest. And
 **faithfulness**, which we are careful to split into two claims.
 
+It is worth saying precisely what is and is not novel here, because "logging what the model did" is
+not new. Model cards [Mitchell et al. 2019], datasheets, and inference/audit logs document a model
+or a run; activation-caching and attention-flow tooling record internals for post-hoc analysis. The
+trace differs on three specific counts, and the novelty is their conjunction: it is a **first-class
+output of the forward pass itself** (not an external probe attached afterward); it is
+**decision-faithful and deterministically replayable** by a third party on the integer Q16.16 path
+(§4.2), so the routing/prune decision can be re-derived bit-exactly rather than merely inspected;
+and it is **committed on-chain as part of the inference transaction**, so the replay is something an
+arbitrary verifier performs against committed weights. No model-card or logging scheme offers
+third-party deterministic replay of the decision; that triple is the contribution.
+
 ## 4.2 Decision-faithful vs bit-faithful (ADR-0006)
 
 A naive reading of "replaying the logged zone mix reproduces the output" cannot be bit-exact,
@@ -91,9 +102,10 @@ The stateful surfaces — where ordering and determinism guarantees live — are
 - `McpHarness.tla` — `NoUngatedSideEffect`, `NoExecOnFailedCodec`, and termination (§3.5).
 
 Each module's safety invariants and the matching Rust acceptance test enforce the same property
-at two levels — the model checker over all reachable states, the test at runtime. We are honest
-about status: the modules are written to be checked, but TLC was not run in the bootstrap
-environment (no JRE), so "TLC green on all three" is an open Gate-1 item rather than a completed
-one. The invariants are also claim-shaped for IP review (C-1 through C-5), with the defensible
+at two levels — the model checker over all reachable states, the test at runtime. **TLC is green on
+all three modules** (2026-06-22, via `scripts/run-tlc.sh`): `MergeDeterminism` over 31 distinct
+states, `AsyncGather` over 40, and `McpHarness` over 10, with no invariant violations. The
+remaining open Gate-1 item is counsel sign-off on the claim-shaped statements, not the model
+checking. The invariants are claim-shaped for IP review (C-1 through C-5), with the defensible
 combination being *auditable-by-construction, GGUF-compatible, zone-partitioned, with
 on-chain-verifiable provenance and a formally-specified tool harness.*

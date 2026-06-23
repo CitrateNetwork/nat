@@ -104,11 +104,13 @@ verifiably, every pass**."
 ## E. Verifiable / zero-knowledge ML, on-chain inference  ← the verifiability wedge
 
 **Key works.**
-- Kang et al. *ZKML: Optimizing System for ML Inference in Zero-Knowledge.* EuroSys 2024
-  `[searched]`. Sun et al. *zkLLM.* (2024) `[searched]` — verifiable transformer inference
-  (GPT-2 proof ~287s). *zkGPT.* USENIX Security 2025 `[searched]`. *A Survey of ZKP-Based
-  Verifiable ML.* arXiv:2502.18535 (2025) `[searched]`. EZKL (ONNX→zk-SNARK). Modulus Labs
-  (≤18M-param on-chain verification). TEE attestation (MAA/NRAS) — see Citrate Paper X.
+- Chen, Waiwitlikhit, Stoica, Kang. *ZKML: An Optimizing System for ML Inference in
+  Zero-Knowledge Proofs.* EuroSys 2024 `[searched]` (cite as Chen et al., not Kang et al.).
+  Sun, Li, Zhang. *zkLLM.* CCS 2024 `[searched]` — verifiable transformer inference, ~15 min/proof
+  for Llama-2-13B. Qu et al. *zkGPT.* USENIX Security 2025 `[searched]` — proves GPT-2 in tens of
+  seconds (279×/185× speedup; this is the source of the ~25s figure, NOT zkLLM). Peng & Wang et al.
+  *A Survey of ZKP-Based Verifiable ML.* arXiv:2502.18535 (2025) `[searched]`. EZKL (ONNX→zk-SNARK).
+  Modulus Labs (≤18M-param on-chain verification). TEE attestation (MAA/NRAS) — see Citrate Paper X.
 
 **How NAT differs (and complements Citrate Paper X).** zkML wraps a **black box** in an
 *external* proof: prove, after the fact, that *some* opaque computation ran on committed
@@ -172,9 +174,14 @@ verifiable chain.*
 **Key works.**
 - Belnap. *A Useful Four-Valued Logic.* (1977) — values {T, F, **B**oth, **N**either};
   logical order vs information/knowledge order.
-- *Four Imprints of Belnap's Useful Four-Valued Logic in Computer Science.*
-  arXiv:2503.20679 (2025) `[searched]` — modern CS survey. Belnap–Dunn (FDE / relevance
-  logic) for multiple inconsistent/incomplete sources. SEP, *Paraconsistent Logic.*
+- Jakl. *Four Imprints of Belnap's Useful Four-Valued Logic in Computer Science.*
+  arXiv:2503.20679 (2025) `[searched]` — NOT a general survey; a specialized paper tracing Belnap's
+  imprint in d-frames, linear logic, blame calculus, and LVars via the twist-product/bilattice
+  representation. Cite it only for "Belnap's continuing CS imprint," NOT for multi-source
+  aggregation. For the multi-source/paraconsistent-aggregation claim cite: SEP *Paraconsistent
+  Logic*; Ginsberg (bilattices); Arieli & Avron (bilattice-based reasoning / FDE). Belnap (1977),
+  *A Useful Four-Valued Logic*, in Dunn & Epstein (eds.), *Modern Uses of Multiple-Valued Logic*,
+  Reidel.
 - Citrate Paper II (Paraconsistent Consensus) — Belnap aggregation over Q16 embeddings;
   "consensus and learning are the same process at different time scales."
 

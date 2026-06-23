@@ -30,6 +30,13 @@ zones are *declared*, the partition is *fixed at build time*, and the assignment
 representational slice to a named function is a property of the architecture rather than a
 discovery made after training.
 
+All six zones are declared and the forward pass is exercised end-to-end on all six (the L0
+reference); but the *capability* evidence in §6 is on the three data-rich zones `{HP, PF, CX}`.
+This is deliberate staging (ADR-0008): the multimodal `SM` and timing `CB` zones have the thinnest
+data at this scale, so we hold them out of the load-bearing ablation until "the data earns it,"
+and the only five-zone exercise to date is the scale-ladder loss probe of §6.3, not a capability
+comparison. The architecture is six zones; the measured claims are three.
+
 Core choice by function follows ADR-0002. Temporal zones (`SM`, `CB`) use state-space cores
 [Gu & Dao 2023] for linear-time recurrence and an explicit, loggable internal state; reasoning
 zones (`HP`, `PF`, `CX`) use attention for content-addressable look-back. In the reference
@@ -111,8 +118,12 @@ the integer `round(v · 2^16)` in an `i64`, with `i128` intermediates for multip
 arithmetic is bit-identical across CPUs and across federated nodes, where IEEE-754 float is not
 — this is what lets independently-computed merges reconcile and on-chain provenance verify (the
 same motivation as Citrate's verifiable-inference substrate, Paper X). The training-time merge
-(`nat-candle`, WP-2) is a differentiable form **reconciled to** this Q16.16 provenance merge, so
-the model the gradient sees and the model the verifier replays are the same decision rule.
+(`nat-candle`, WP-2) is a differentiable form **reconciled to** this Q16.16 provenance merge: a
+battery test pins that its hardened survivor set equals the canonical `prune_and_reweight`
+survivors (the soft top-k via temperature-annealed softmax converges to the hard recorded survivors
+as `τ → 0`), so the model the gradient sees and the model the verifier replays make the **same
+survivor decision** — the composition weights are soft during training and anneal toward the hard
+recorded weights.
 
 ## 3.5 The MCP harness
 
@@ -137,11 +148,15 @@ runtime, the ecosystem cannot adopt it. NAT keeps **GGUF/ONNX as the tensor cont
 an auxiliary **sidecar** (`.nat.json`, `nat-sidecar`) that declares the zone graph, topology,
 router/merge parameters, and composition rules (ADR-0004). A sidecar-unaware runtime runs the
 tensors as an opaque transformer (the onramp); a sidecar-aware runtime runs the full
-zone-partitioned pass with provenance (the offramp). We are precise about a limitation here
-(critique #7): a literal zone-partitioned graph with parallel heterogeneous SSM+attention zones
-does not serialize to a layout `llama.cpp` runs as-is, so the "runs opaquely in Ollama" claim
-applies to a **flattened-dense** export, recorded in the sidecar's `export_kind`; the sidecar is
-always the source of truth for the zone graph. The composition rules (a zone is swappable when
+zone-partitioned pass with provenance (the offramp). We are precise about the status here, because it is
+not yet built: a literal zone-partitioned graph with parallel heterogeneous SSM+attention zones
+does not serialize to a layout `llama.cpp` runs as-is, so the ecosystem onramp depends on a
+**flattened-dense** export. That export is **specified, not yet implemented** (Gate-3 item
+`g3-gguf`, WP-1.4): the sidecar declares an `export_kind` field whose `FlattenedDense` variant is
+reserved for it, but only the `ZonePartitioned` form is produced today, and the GGUF round-trip and
+Ollama-class load are not yet demonstrated. The sidecar is the source of truth for the zone graph
+in either case; the claim that NAT "runs in the existing inference ecosystem" is therefore a design
+target, not a measured result. The composition rules (a zone is swappable when
 its slice width and cross-zone contract match) are what let a federation evolve one zone without
 retraining the whole model (§7), and are the structural analog of mixture-of-experts the design
 was reaching for — *threaded and composable* rather than a flat pool of experts behind a router.

@@ -34,7 +34,7 @@ scale). ~200 words.
   output. The same move yields verifiability, efficiency, and decentralizability.
 - **Contributions** (numbered): (1) the zone-partitioned architecture + fixed-topology
   routing; (2) provenance-as-verifiable-output (decision-faithful, on-chain-committable);
-  (3) GGUF/ONNX sidecar (ecosystem-compatible); (4) the H-01 result (partitioning beats
+  (3) GGUF/ONNX sidecar (ecosystem-compatible); (4) the H-01 result (partitioning does not reduce capability/param
   equal-param dense, 5/5 seeds, real text); (5) the paraconsistent (Belnap) federated
   training frame on a verifiable chain; (6) a fully reproducible Rust reference impl.
 - Honest-posture statement + roadmap.
@@ -84,7 +84,7 @@ I. Scaling laws (Chinchilla) — the orthogonal H-01 question (structure at fixe
   equal params, next-byte LM on the held-out split, GPU. (Synthetic was marginal 3/5;
   real data decisive.)
 - **H-02**: trained router separation 11.70 vs 4.25 baseline (note: in-sample caveat).
-- **Scale ladder** S→M→L monotone (4.097→4.054→3.953 bits/byte); first real SSM-zone
+- **Size/zone ladder** S→M→L trends down (confounded: zones 3→5 at L) (4.097→4.054→3.953 bits/byte); first real SSM-zone
   training at L. Evidence the structure scales → justifies L2.
 - **H-03a**: decision-faithful replay holds by construction (+ test).
 - **Honest limitations**: ~20K-param/3-zone byte-LM scale; in-sample H-02; bit-faithful

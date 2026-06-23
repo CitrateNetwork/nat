@@ -36,9 +36,13 @@ feed-forward width is searched until its parameter count matches the NAT arm wit
 outside that band errors rather than reports. A second guard, `guard_not_toy`, refuses a toy-backed
 arm, so a measured result can never be a toy artifact (§3.1, §4). Both arms share the **same training
 data, windows, epochs, batch size, learning rate, and shuffle seed** — only the structure
-(partitioned vs dense) differs. Capability is the inverse of held-out cross-entropy, measured per
-parameter, averaged over five seeds; the per-seed verdict is "partitioned ≥ dense within a 5% slack,"
-and the headline is the holds-fraction across seeds. The run is reproducible:
+(partitioned vs dense) differs. Capability is proxied as the inverse of held-out
+cross-entropy, measured per parameter, averaged over five seeds. We state the proxy plainly: `1/loss`
+is an arbitrary monotone transform of cross-entropy, and because the arms are parameter-matched to
+within 0.08% here (20,718 vs 20,701) the per-parameter normalization is nearly a no-op — so the
+comparison is, in effect, *lower held-out loss at equal parameters*. The per-seed verdict is the
+non-inferiority test "partitioned ≥ dense within a 5% slack," and the headline is the holds-fraction
+across seeds (a non-inferiority result, not strict superiority — §6.1). The run is reproducible:
 `scripts/dgx-gpu.sh run -p nat-ablation --features cuda --example real_h01_corpus -- <corpus-dir>`.
 
 We ran H-01 twice, deliberately. First on a **synthetic** task (a binned-token-sum, full-batch,
@@ -58,9 +62,10 @@ standard, and why good code reads like the codebase around it. The corpus draws 
 on that one foundation: logic (Boole → Frege → Russell → **Belnap**), computation (Turing →
 Church → Shannon), craft (SICP, the Rust Book, permissive code), and expression (Strunk, Whitman,
 Montaigne, Carroll, Austen), with copyrighted ideas entering only through authored CC0 explainers
-we own the framing of. The pipeline reports the corpus health honestly: 2,337 documents, 779
-shards, **1,120,711 tokens**, aggregate quality 0.852, **zero quarantined** (aside from one PII
-false positive). Tokenization at L1 is byte-level (vocabulary 256, deterministic), so the
+we own the framing of. The pipeline reports the corpus health: 2,337 documents, 779
+shards, **1,120,711 tokens**, aggregate quality 0.852 (the pipeline's own self-score, on its own
+rubric — a curation diagnostic, not an external quality measure), and zero documents quarantined by
+its own gates (one PII false-positive excepted). Tokenization at L1 is byte-level (vocabulary 256, deterministic), so the
 language-modeling metric is bits/byte and the uniform-baseline is 8.0.
 
 This corpus is small by frontier standards and we make no apology for that — it is the substrate
