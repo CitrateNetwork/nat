@@ -89,14 +89,19 @@ echo ">> running the pipeline (code-craft only)"
 #   "$BIN" run --input "$WORK/values-spine-plus-code.jsonl" --out "$OUT/values-spine/corpus-v3"
 #
 # Then retrain the BPE tokenizer (WP-D5) on that same combined input and report
-# compression. corpus-v3 measured (2026-06-22, see research-loop/INTENT.md standup):
-#   1.97 bytes/token @ vocab 1024 ; 2.43 @ vocab 4096.
+# compression. corpus-v3 measured (see research-loop/INTENT.md standups):
+#   1.97 bytes/token @ vocab 1024 ; 2.43 @ 4096 ; 2.62 @ 8192 (knee ~4096).
 #   "$BIN" train-bpe --input "$WORK/values-spine-plus-code.jsonl" --vocab 1024 \
 #       --out "$OUT/values-spine/bpe-1024-v3.json"
 #   "$BIN" train-bpe --input "$WORK/values-spine-plus-code.jsonl" --vocab 4096 \
 #       --out "$OUT/values-spine/bpe-4096-v3.json"
-# The BPE-LM payoff (held-out bits/byte) trains on the built corpus dir, not the JSONL:
-#   scripts/dgx-gpu.sh run -p nat-candle --features cuda --example train_autoreg_bpe -- \
-#       "$OUT/values-spine/corpus-v3"/<config-hash> "$OUT/values-spine/bpe-1024-v3.json"
-#   # corpus-v3: held-out 3.106 -> 2.505 bits/byte over 8 epochs, monotonic, no overfit.
+# The BPE-LM payoff (held-out bits/byte) trains on the built corpus dir, not the JSONL.
+# Use --release: these models are CPU-bound in this candle build (the vocab-8192 run
+# took ~2h in debug-equivalent). Larger vocab needs the batched eval (loss_on_batched)
+# or a single full-val forward OOMs the GPU at the (n_val, seq, vocab) logit tensor.
+#   scripts/dgx-gpu.sh run -p nat-candle --features cuda --release --example train_autoreg_bpe \
+#       -- "$OUT/values-spine/corpus-v3"/<config-hash> "$OUT/values-spine/bpe-1024-v3.json"
+#   # corpus-v3 held-out bits/byte over 8 epochs (monotonic, no overfit):
+#   #   vocab 1024 (127,699 params): 3.106 -> 2.505 ; vocab 8192 (822,995 params): 2.463 -> 2.096.
+#   #   NB: cross-vocab bits/byte is confounded — bigger vocab = bigger embedding/output = more params.
 echo ">> done. code-craft corpus under $WORK/corpus/"

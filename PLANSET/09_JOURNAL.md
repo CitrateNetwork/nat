@@ -448,3 +448,54 @@ that now spans prose, Rust, and Scheme.
 *Still a bet:* still ~128K params, vocab 1024, ~2M tokens — L1 scale. Larger vocab and the
 per-position autoregressive LM (WP-D7) are the next rungs; L2 (real depth + far more tokens)
 remains the question that could refute the whole zone bet.
+
+---
+
+# 2026-06-23 — the vocab sweep, and the eval that crashed the box
+
+## What I did
+
+Pushed the BPE vocab sweep on corpus-v3 out to 8192 and ran the BPE-LM at that vocab.
+Compression: 1.97 → 2.43 → 2.62 bytes/token across 1024 / 4096 / 8192 — a clean
+diminishing-returns curve (the 4× step from 1024 buys +0.46; the 2× step to 8192 buys only
++0.19). The knee is around 4096; past it the merge budget is spending slots on rare code
+and Scheme symbols that don't repeat enough to pay for themselves.
+
+The vocab-8192 BPE-LM reached **2.096 bits/byte** (held-out, 8 epochs, monotonic, no
+overfit) versus the vocab-1024 run's 2.505.
+
+## The two traps
+
+**Trap one — the comparison is confounded.** 2.096 < 2.505 looks like "bigger vocab wins,"
+but the vocab-8192 LM is 822,995 params against the vocab-1024 LM's 127,699 — a 6.4× bigger
+model, because the embedding and output projection both scale with vocab (≈695K of the extra
+params are vocab-tied). So most of the bits/byte gain is just *more parameters*, not a better
+tokenizer. To attribute anything to the tokenizer you have to hold the param count fixed.
+The honest, un-confounded claim is the shape, again: monotone descent, overfit-free.
+
+**Trap two — the eval allocation, not the model, was the OOM.** The first 8192 run crashed
+the whole box. The cause wasn't the model size or training — training was already
+minibatched. It was the held-out eval doing a single forward over the entire 6000-sequence
+validation set, which materializes a `(6000, 64, 8192)` logit tensor: ~12.6 GB in one
+allocation. At vocab 1024 that same tensor is 1/8th the size and fit, so the bug hid until
+vocab grew. Fix: `loss_on_batched` evaluates in 64-sequence minibatches and row-weight-
+averages — exactly the same number (unit-tested against `loss_on`), bounded memory.
+
+## The durable lesson
+
+Two of them. First: when a metric improves after you scaled a knob, check what *else* that
+knob moved — vocab size silently moved the parameter count, and the "win" was mostly that.
+Second: an allocation that scales with a config dimension is a latent OOM that stays
+invisible until that dimension grows. The eval was wrong at vocab 1024 too; it just hadn't
+been asked for enough memory yet to show it. Batch anything whose size rides on vocab,
+batch, or sequence length, even if it fits today.
+
+## What is true now, and what is still a bet
+
+*True:* the BPE compression curve on corpus-v3 is mapped through vocab 8192 (clear knee at
+~4096); both the 1024 and 8192 LMs descend monotonically with no overfit; the eval OOM is
+fixed and regression-tested.
+
+*Still a bet:* the cross-vocab bits/byte comparison is confounded by param count and can't
+isolate the tokenizer; everything is still L1 scale; WP-D7 (per-position LM) and a
+param-matched vocab comparison are the next honest rungs.

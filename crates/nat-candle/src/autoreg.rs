@@ -262,6 +262,31 @@ impl AutoregLm {
         self.loss_tensor(ids)?.to_scalar::<f32>()
     }
 
+    /// Held-out loss evaluated in mini-batches to bound peak memory. The single-shot
+    /// `loss_on` materializes a `(n, seq, vocab)` logit tensor over the whole set,
+    /// which OOMs the GPU at large vocab (e.g. ~12.6 GB for 6000×64×8192). Because
+    /// every sequence has the same length, the per-batch mean cross-entropy weighted
+    /// by row count is exactly the full-set mean — so this returns the same number as
+    /// `loss_on` would, just without the giant allocation.
+    pub fn loss_on_batched(&self, ids: &Tensor, batch_size: usize) -> Result<f32> {
+        let n = ids.dims2()?.0;
+        if n == 0 {
+            return Ok(0.0);
+        }
+        let bs = batch_size.clamp(1, n);
+        let (mut weighted, mut rows) = (0.0f64, 0usize);
+        let mut start = 0;
+        while start < n {
+            let len = (start + bs).min(n) - start;
+            let xb = ids.narrow(0, start, len)?;
+            let l = self.loss_tensor(&xb)?.to_scalar::<f32>()? as f64;
+            weighted += l * len as f64;
+            rows += len;
+            start += len;
+        }
+        Ok((weighted / rows as f64) as f32)
+    }
+
     fn loss_tensor(&self, ids: &Tensor) -> Result<Tensor> {
         let (b, seq) = ids.dims2()?;
         let logits = self.forward(ids)?; // (b, seq, vocab)
@@ -372,6 +397,35 @@ mod tests {
         let out = m.forward(&ids).unwrap();
         assert_eq!(out.dims3().unwrap(), (2, cfg.seq_len, cfg.vocab));
         assert!(m.param_count() > 0);
+    }
+
+    #[test]
+    fn batched_eval_matches_single_shot() {
+        // loss_on_batched must equal loss_on regardless of batch size (sequences are
+        // equal-length, so the row-weighted mean is exact). Guards the OOM fix.
+        let cfg = AutoregConfig {
+            seq_len: 16,
+            d: 24,
+            ..AutoregConfig::byte_3zone()
+        };
+        let m = AutoregLm::new(&cfg).unwrap();
+        let n = 7u32; // deliberately not a multiple of any batch size below
+        let ids = Tensor::from_vec(
+            (0..(n * cfg.seq_len as u32))
+                .map(|i| (i * 31 + 7) % 256)
+                .collect::<Vec<_>>(),
+            (n as usize, cfg.seq_len),
+            m.device(),
+        )
+        .unwrap();
+        let full = m.loss_on(&ids).unwrap();
+        for bs in [1usize, 2, 3, 7, 100] {
+            let batched = m.loss_on_batched(&ids, bs).unwrap();
+            assert!(
+                (full - batched).abs() < 1e-4,
+                "bs={bs}: {batched} != {full}"
+            );
+        }
     }
 
     #[test]
