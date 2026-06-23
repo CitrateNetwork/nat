@@ -14,13 +14,19 @@ experts to scale capacity at near-constant inference cost. NAT shares the condit
 instinct but inverts the routing's epistemics: MoE experts are *discovered, interchangeable, and
 unnamed*, and the gate is itself a black box whose assignment carries no semantics. NAT's zones
 are *declared and named*, wired over a **fixed** topology a learned router only modulates and
-cannot extend. MoE optimizes throughput via sparse activation; NAT optimizes auditability and
-capability-per-parameter at *equal total parameters* (the H-01 question, §6), recording every
-zone's participation rather than only the chosen expert's.
+cannot extend. We do not claim named modules or fixed routing are themselves new: hash-/fixed-routed
+MoE [Roller et al. 2021] already fixes the assignment, and named role-specialized modules are
+surveyed in [Pfeiffer et al. 2023] and are decades old in cognitive architectures (ACT-R, Leabra).
+What is distinctive is not the naming but that the topology is a *machine-checkable auditable object*
+— a learned router that **provably** cannot create an undeclared edge (a structural invariant, §3.2,
+with the merge and gather model-checked, §4.5) — composed with the provenance trace. MoE optimizes
+throughput via sparse activation; NAT optimizes auditability and capability-per-parameter at *equal
+total parameters* (the H-01 question, §6), recording every zone's participation rather than only the
+chosen expert's.
 
-**Brain-inspired language models.** The closest prior art is BriLLM [2025], which also takes
-neuroscience as its starting point and also claims full interpretability, via a "signal
-fully-connected flowing" mechanism over a graph that *replaces attention entirely*. The
+**Brain-inspired language models.** The closest prior art is BriLLM [Zhao et al. 2025], which also
+takes neuroscience as its starting point and also claims full interpretability, via a "signal
+fully-connected flowing" (SiFu) mechanism over a graph that *replaces attention entirely*. The
 differences are decisive. BriLLM abandons the transformer and with it the GGUF/ONNX/Ollama
 ecosystem; NAT keeps the transformer (attention and state-space cores inside zones) and stays
 ecosystem-compatible through a sidecar (§3.6). BriLLM's interpretability is node-level token
@@ -48,10 +54,11 @@ is an architectural fact, and the provenance trace makes it a recorded, replayab
 lead thesis: structure is interpretability.
 
 **Verifiable and zero-knowledge ML.** Zero-knowledge ML proves, after the fact, that an opaque
-computation ran on committed weights — ZKML [Kang et al. 2024], zkLLM [Sun et al. 2024], zkGPT
-[2025], surveyed in [2025], with tools like EZKL and on-chain systems verifying up to ~18M
-parameters. These verify the *output* at heavy cost (hundreds of seconds per proof for a small
-transformer) and say nothing about the *reasoning*. NAT is verifiable *by construction*: the
+computation ran on committed weights — ZKML [Chen et al. 2024], zkLLM [Sun et al. 2024], zkGPT
+[Qu et al. 2025], surveyed in [Peng et al. 2025], with tools like EZKL and on-chain systems
+verifying up to ~18M parameters. These verify the *output* at heavy cost — zkLLM takes on the order
+of fifteen minutes per proof for a 13B model, and even zkGPT, the current fast path, proves GPT-2 in
+tens of seconds — and say nothing about the *reasoning*. NAT is verifiable *by construction*: the
 decision-faithful trace is replayable with no per-inference proof, on the same Q16.16 substrate
 Citrate's verifiable-inference precompiles use (Paper X), with which it composes when bit-exact
 certification of the numeric layer is required (§4.4).
@@ -71,9 +78,11 @@ the score, not the computation. NAT supplies the verifiable substrate that line 
 contributor's work is a signed, provenance-traced, Q16.16-deterministic update whose value is
 compute × data-quality, settled by `citrate-compute-pool` (§7).
 
-**Paraconsistent logic.** Belnap's four-valued logic [Belnap 1977], with values true, false, both,
-and neither — surveyed for computer science in [2025] — is designed for reasoning from multiple
-inconsistent or incomplete sources. NAT uses it as the federated-aggregation logic (§7): when nodes
+**Paraconsistent logic.** Belnap–Dunn's four-valued logic [Belnap 1977; Dunn], with values true,
+false, both, and neither, is designed for reasoning from multiple inconsistent or incomplete
+sources [SEP, *Paraconsistent Logic*], with bilattice-based aggregation developed by Ginsberg and
+by Arieli & Avron; its continuing imprint in computer science is traced in [Jakl 2025]. NAT uses it
+as the federated-aggregation logic (§7): when nodes
 with different data train the same zone, per-dimension contributions resolve to a Belnap state, and
 genuine disagreement (Both) and genuine ignorance (Neither) are preserved as first-class rather
 than averaged away, operationalizing the consensus mechanism specified in Citrate Paper II.

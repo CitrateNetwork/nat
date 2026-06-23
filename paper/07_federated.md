@@ -14,11 +14,14 @@ Because a zone owns a slice of fixed width and a declared cross-zone contract, a
 (§3.6). This is the structural enabler of decentralized training: a federation can train and evolve
 a *single* zone without retraining the whole model, in contrast to the monolithic-replica model of
 DiLoCo-style federated training (§2). A node owns one or more zones, trains them, and submits its
-zone outputs; the async gather (§3.3) collects them under the same deadline discipline used inside a
-single forward pass, and the deterministic Q16.16 merge (§3.4) reconciles independently-computed
-contributions into a result that every node — and an on-chain verifier — computes identically. The
-merge-determinism property (`MergeDeterminism.tla`, §4.5) is exactly what makes this reconciliation
-sound: same gathered set, same result, bit for bit.
+zone outputs; the async gather (§3.3) would collect them under the same deadline discipline used inside a
+single forward pass, and the deterministic Q16.16 merge (§3.4) **would** reconcile
+independently-computed contributions into a result that every node — and an on-chain verifier —
+computes identically. We use the conditional deliberately: the determinism *property* that makes
+this sound (same gathered set → same bits) is demonstrated locally and TLC-checked
+(`MergeDeterminism.tla`, §4.5), and the gather is implemented today as a single-process deterministic
+*simulation* of the deadline; the actual multi-node, cross-network signed gather is the Gate-4
+milestone (§7.5), not a result in hand.
 
 ## 7.2 Paraconsistent aggregation: disagreement as data
 

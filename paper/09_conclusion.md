@@ -4,23 +4,33 @@ We presented the Neuroarchitectural Transformer, a transformer whose hidden repr
 partitioned into declared, named zones over a fixed, auditable topology, merged on a deterministic
 fixed-point path, and emitting a hashable provenance trace as a first-class output. The wager — that
 *declaring structure* dissolves much of the opacity problem and pays out in verifiability,
-capability per parameter, and decentralizability at once — is supported by what we were able to
-measure: on a real, license-clean, public-domain corpus, zone partitioning beat an equal-parameter
-dense baseline across all five seeds (held-out loss 2.88–2.91 versus 2.97–2.99); a learned router
-differentiated prompt classes; the architecture's loss fell monotonically along the scale ladder,
-best at the five-zone rung; and decision-faithful provenance holds by construction. These are
-small-scale results, stated with their caveats, and the value of the scale ladder is precisely that
+capability per parameter, and decentralizability at once — is supported, at small scale, by what we
+were able to measure: on a real, license-clean, public-domain corpus, zone partitioning did not
+reduce capability per parameter versus an equal-parameter dense baseline and was modestly
+lower-loss on the mean across all five seeds (held-out loss 2.88–2.91 versus 2.97–2.99, a
+non-inferiority result); a learned router differentiated prompt classes and generalized to held-out
+prompts (3.10 versus 2.63); held-out loss trended downward over a three-rung size/zone ladder; and
+decision-faithful provenance holds by construction with the stateful surfaces TLC-checked. These are
+small-scale results without a mixture-of-experts baseline or component ablation, stated with their
+caveats, and the value of the scale ladder is precisely that
 it let us test the load-bearing bet cheaply before committing to anything larger.
 
-The work that remains is clearly ordered. **Scale** is the immediate test: BPE tokenization, depth,
-and orders of magnitude more parameters and tokens, to see whether H-01's hold survives — and to
-say so honestly if it does not. The **federated proof** (Gate 4) turns §7 from specified to
-demonstrated: multi-node signed gather, Belnap aggregation at checkpoint cadence, and end-to-end
-incentive settlement through `citrate-compute-pool`. The **GGUF flattened-dense export** completes
-the ecosystem onramp. **TLC-checking** the three TLA+ modules closes the open formal item. And a
-**task-level capability metric**, available once the model is large enough to have one, replaces the
-inverse-loss proxy. Each of these is a falsification opportunity as much as a milestone; the
-honest-posture discipline that carried the work this far is what makes them worth running.
+The work that remains is clearly ordered. The **most important next experiments** are the ones that
+would turn the H-01 result from suggestive to causal: a **parameter-matched mixture-of-experts
+baseline**, **component ablations** (no-router, no-prune, single-core-type, and — to earn the
+neuroscience framing — a *random* equal-width partition versus the named one), and **results on a
+standard corpus** (enwik8/text8/WikiText) with a per-seed table, variance, and a paired significance
+test, ideally with one independent replication. **Scale** is the next test after that: BPE
+tokenization, depth, and orders of magnitude more parameters and tokens, to see whether the hold
+survives — and to say so honestly if it does not. The **federated proof** (Gate 4) turns §7 from
+specified to demonstrated: multi-node signed gather, Belnap aggregation at checkpoint cadence, and
+end-to-end incentive settlement through `citrate-compute-pool`. The **GGUF flattened-dense export**
+(WP-1.4) builds the ecosystem onramp the sidecar currently only specifies. And a **task-level
+capability metric**, available once the model is large enough to have one, replaces the inverse-loss
+proxy. (The three TLA+ modules are already TLC-green; the remaining open Gate-1 item is counsel
+sign-off on the claim-shaped statements.) Each of these is a falsification opportunity as much as a
+milestone; the honest-posture discipline that carried the work this far is what makes them worth
+running.
 
 If the broader claim holds — that a model can be a dynamic, legible, verifiable instrument rather
 than an undifferentiated blob of weights, with a broader capability range for less pretraining and a

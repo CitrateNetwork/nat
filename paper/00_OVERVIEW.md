@@ -24,22 +24,26 @@ Every forward pass emits a structured, deterministically-hashable **provenance t
 which zones fired, with what confidence, what was pruned, and why. The trace is the product:
 it makes the model **interpretable and verifiable by construction, on every pass**, rather
 than after the fact. We argue this single architectural move — *declaring structure* —
-simultaneously yields three properties usually pursued separately: **verifiability**
-(the trace is a committable, replayable artifact, complementing zkML's after-the-fact proofs
-with a structural guarantee), **capability per parameter** (our load-bearing claim), and
-**decentralizability** (composable named zones reconcile via paraconsistent Belnap
-aggregation on a verifiable chain). On a 1.12M-token public-domain corpus trained as a
-next-byte language model with a held-out split, an equal-parameter ablation finds that
-zone partitioning **beats** a dense baseline per parameter across **5 of 5 seeds** (NAT
-held-out loss 2.88–2.91 vs dense 2.97–2.99); a learned router differentiates prompt
-classes (separation 11.70 vs a 4.25 unlearned baseline); and a scale ladder is monotone
-in size. These results are at small scale (~20K parameters, three zones, byte-level) and
-we are explicit that a larger run could refute them — the scale ladder exists precisely to
-find out cheaply. NAT is implemented as a reproducible Rust workspace and is GGUF/ONNX-
-compatible via an auxiliary sidecar, so it runs in the existing inference ecosystem. We
-position NAT as the model layer for a verifiable, federated learning network in which
-*consensus and learning are the same process*, and contributors are rewarded as
-compute × data-quality.
+simultaneously yields three properties usually pursued separately. **Verifiability** is *demonstrated*: the trace is a
+committable, replayable artifact whose decision layer is third-party-checkable by construction
+(complementing zkML's after-the-fact proofs with a structural guarantee), and the stateful
+surfaces are model-checked in TLA+. **Capability per parameter** is *empirically supported at small
+scale*: on a 1.12M-token public-domain corpus trained as a next-byte language model with a held-out
+split, an equal-parameter ablation finds that zone partitioning **does not reduce** capability per
+parameter — and is modestly lower-loss on the mean — across five seeds (NAT held-out loss 2.88–2.91
+vs dense 2.97–2.99; a non-inferiority verdict with a 5% slack, N=5, no formal significance test);
+a learned router differentiates prompt classes and generalizes to held-out prompts (separation
+3.10 vs a 2.63 baseline held-out; 11.70 vs 4.25 in-sample); and a three-rung size/zone ladder
+trends downward. **Decentralizability** is *specified and formally modeled, not yet demonstrated*:
+we describe (and TLA+-check the local determinism behind) reconciling composable named zones via
+paraconsistent Belnap aggregation on a verifiable chain, with the multi-node training cycle left as
+future work. All empirical results are at small scale (~20K–115K parameters, byte-level), with no
+mixture-of-experts baseline or component ablation yet, and we are explicit that a larger,
+better-controlled run could refute them — the scale ladder exists precisely to find out cheaply.
+NAT is implemented as a reproducible Rust workspace; a GGUF/ONNX sidecar **design** targets
+ecosystem compatibility (the round-trip is not yet shown). We position NAT as the model layer for a
+verifiable, federated learning network in which *consensus and learning are the same process*, and
+contributors are rewarded as compute × data-quality.
 
 ---
 
@@ -106,15 +110,17 @@ at once, which the literature usually pursues in isolation:
    same Q16.16 substrate Citrate's verifiable-inference precompiles already use (Paper X).
    The two compose — a SNARK or TEE attestation can wrap the numeric layer when bit-exact
    logits are required — but only NAT supplies the *structural* guarantee.
-2. **More capability per parameter.** This is our load-bearing, falsifiable claim, and the
-   one that turns the design from a story into a result. Holding parameters, data, seed, and
-   compute fixed and varying *only* the partitioning (the ADR-0005 protocol, enforced in
-   code — the harness refuses an unequal-parameter comparison), zone partitioning **beats**
-   an equal-parameter dense baseline on a real next-byte language-modeling task, across all
-   five seeds we ran. We are deliberately explicit about scale (§6): this is ~20K parameters
-   and three zones, and a larger run could overturn it. We report it because it is what we
-   measured, and because the scale ladder is monotone, which is at least consistent with the
-   structure helping rather than hurting as it grows.
+2. **Capability per parameter that does not pay an interpretability tax.** This is our
+   load-bearing, falsifiable claim. Holding parameters, data, seed, and compute fixed and
+   varying *only* the partitioning (the ADR-0005 protocol, enforced in code — the harness
+   refuses an unequal-parameter comparison), zone partitioning **does not reduce** capability
+   per parameter versus an equal-parameter dense baseline on a real next-byte language-modeling
+   task — and is modestly lower-loss on the mean — across all five seeds we ran (a non-inferiority
+   result with a 5% slack; N=5, no formal significance test). We are deliberately explicit about
+   scale (§6): this is ~20K parameters, three zones, byte-level, and there is no mixture-of-experts
+   baseline or component ablation yet, so a larger or better-controlled run could overturn it. We
+   report it because it is what we measured; the design at minimum does not trade capability for
+   the verifiability it buys.
 3. **Decentralizable.** Because zones are *composable* — a zone is swappable when its slice
    width and cross-zone contract match — a federation can train and evolve a single zone
    without retraining the whole model. Independently-trained zone contributions reconcile
@@ -126,21 +132,29 @@ at once, which the literature usually pursues in isolation:
 
 ### 1.4 Contributions
 
-1. The **zone-partitioned architecture**: declared named zones over a fixed, auditable
-   topology with learned-but-bounded routing, hybrid SSM/attention cores by function, and a
-   non-learned executive harness for tool use.
-2. **Provenance-as-verifiable-output**: a deterministically-hashable trace that makes the
-   model interpretable and verifiable by construction, with a precise *decision-faithful* vs
-   *bit-faithful* distinction and an on-chain replay path.
-3. **Ecosystem compatibility**: a GGUF/ONNX sidecar that preserves the existing inference
-   stack (the model loads and runs in an Ollama-class harness).
-4. **The H-01 result**: an equal-parameter ablation, on real text, finding partitioning
-   beats dense per parameter (5/5 seeds) — with honest scale caveats.
-5. A **paraconsistent federated-training frame**: composable zones reconciled by Belnap
-   aggregation on a verifiable Q16.16 substrate, with compute × data-quality incentives —
-   decentralized intelligence meeting decentralized science on a verifiable chain.
-6. A **fully reproducible Rust reference implementation**, formal (TLA+) specifications of
-   the stateful surfaces, and a companion case study on agent-led model building.
+We tag each by status — *[demonstrated]* (implemented and evaluated), *[implemented]* (built and
+tested, not an evaluation), *[specified]* (designed, and where noted formally modeled, not yet
+demonstrated):
+
+1. *[implemented]* The **zone-partitioned architecture**: declared named zones over a fixed,
+   auditable topology with learned-but-bounded routing (the router provably cannot create
+   undeclared edges), hybrid SSM/attention cores by function, and a non-learned executive harness.
+2. *[demonstrated]* **Provenance-as-verifiable-output** — the paper's primary contribution: a
+   first-class, deterministically-hashable trace, decision-faithful and third-party-replayable on
+   the Q16.16 path and on-chain-committable, distinct from model cards, logging, and post-hoc
+   interpretability (it is an output of the pass, not an external probe), with a precise
+   decision-faithful vs bit-faithful distinction.
+3. *[specified]* An **ecosystem-compatibility design**: a GGUF/ONNX sidecar intended to preserve
+   the existing inference stack; the flattened-dense export and Ollama-class round-trip are not
+   yet built (WP-1.4).
+4. *[demonstrated, small scale]* The **H-01 result**: an equal-parameter ablation on real text
+   finding partitioning does not reduce capability per parameter (non-inferiority, modest mean
+   advantage, 5 seeds) — with explicit scale and missing-baseline caveats.
+5. *[specified]* A **paraconsistent federated-training frame**: composable zones reconciled by
+   Belnap aggregation on a verifiable Q16.16 substrate (the local determinism is TLA+-checked; the
+   multi-node cycle is future work), with compute × data-quality incentives.
+6. *[implemented]* A **reproducible Rust reference implementation** with **TLC-green** TLA+
+   specifications of the stateful surfaces, and a companion case study on agent-led model building.
 
 ### 1.5 Honest posture
 

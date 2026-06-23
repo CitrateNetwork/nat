@@ -6,43 +6,55 @@ breath. All numbers are from runs on the GB10 (`candle-cuda`) and are reproducib
 commands given; they are recorded in the case studies `CS-01-h01-the-bet.md` and
 `CS-02-real-data-and-scaling.md` and the hypothesis ledger.
 
-## 6.1 H-01: partitioning beats an equal-parameter dense baseline on real text
+## 6.1 H-01: partitioning does not reduce capability per parameter vs an equal-parameter dense baseline
 
 Under the ADR-0005 protocol (§5.2), the real `NatTrainModel` and an equal-parameter dense
 transformer (20,718 ≈ 20,701 parameters) were each mini-batch-trained on the 1.12M-token
 public-domain corpus as a next-byte language model, with capability measured as the inverse of
 **held-out** cross-entropy per parameter, across five seeds sharing all training settings.
 
-**H-01 holds, 5 of 5 seeds.** The partitioned model reaches lower held-out next-byte loss than
-the equal-parameter dense baseline on every seed: **NAT 2.88–2.91 versus dense 2.97–2.99**, with
-mean capability-per-parameter 1.670 × 10⁻⁵ for NAT versus 1.621 × 10⁻⁵ for dense. Partitioning
-does not cost capability per parameter here — it *adds* it.
+**H-01 is supported: partitioning does not reduce capability per parameter, and is modestly
+lower-loss on the mean, across all five seeds.** We state this carefully, because H-01 is
+registered as a *non-inferiority* hypothesis ("does not reduce"), and the per-seed verdict in code
+is a non-inferiority test with a 5% slack (`nat_cpp ≥ dense_cpp · 0.95`) — so "5/5" means "on no
+seed did partitioning fall more than 5% behind," not, by itself, "strictly better on every seed."
+With that defined: the partitioned model's held-out next-byte loss is **2.88–2.91 versus the
+dense baseline's 2.97–2.99** (these ranges are the per-seed extremes and do not overlap), with mean
+capability-per-parameter 1.670 × 10⁻⁵ for NAT versus 1.621 × 10⁻⁵ for dense. The ranges are
+non-overlapping and consistent with a real effect in NAT's favor, but we ran **five seeds with no
+within-arm variance reported and no formal significance test**, so we call the result *suggestive
+and supportive*, not a demonstration of superiority.
 
-We are deliberate about two things. First, the contrast with the synthetic pre-read: on the
-binned-token-sum task (≈3,882 parameters, full batch) H-01 held *on the mean* (4.37 ≥ 3.88
-cap/param) but only on **3 of 5 seeds** — a marginal hold we reported as marginal, which is
-exactly why we went and got real data rather than declaring victory. Real data sharpened the
-verdict from a coin-flip to unanimous; the most plausible reason is that the synthetic task is too
-smooth to separate the architectures while real text's structure rewards the partition. Second,
-the **scale caveat**, stated plainly: this is ~20K parameters, three zones, byte-level, ~1M
-tokens. The result validates the bet enough to keep building toward L2; it does **not** validate
-it *at* L2. A larger run could overturn it, and if it does we will say so.
+Two honest qualifications. First, the synthetic pre-read: on the binned-token-sum task (≈3,882
+parameters, full batch) H-01 held on the mean (4.37 ≥ 3.88 cap/param) but on **3 of 5 seeds** — and
+3/5 versus 5/5 at N=5 is not a statistically distinguishable difference, so we do not read it as
+the architecture "sharpening." The honest summary is that both reads are consistent with H-01, the
+synthetic and real runs differ in *task, batching, and metric* (classification/full-batch/accuracy
+versus next-byte-LM/mini-batch/cross-entropy), and we treat the real-data run as primary because it
+is the more realistic setting — not because 5/5 is decisive where 3/5 was not. Second, the **scale
+caveat**: this is ~20K parameters, three zones, byte-level, ~1M tokens; it validates the bet enough
+to keep building toward L2, not *at* L2, and a parameter-matched mixture-of-experts control and
+component ablations (§8) are the experiments that would establish *which* structural feature carries
+the effect. A larger or better-controlled run could overturn it, and if it does we will say so.
 
 ## 6.2 H-02: a trained router differentiates by prompt class
 
-On the evaluation battery (math · narrative · code · sensory), the trained `LearnedRouter` (WP-3)
-produces a between-class versus within-class separation ratio of **11.70**, versus **4.25** for
-the unlearned L0 routing baseline on the same `nat_eval::separation_ratio` metric — the router
-learns to drive different zone mixes for different prompt classes, more sharply than the hand-wired
-baseline. The caveat is real and we flag it: this is **in-sample** (the router is trained and
-scored on the same battery, as is the baseline), so it demonstrates that routing differentiation
-is *learnable* and *measurable*, not that it generalizes. Held-out batteries at scale are the
-conclusive routing-differentiation test, and they are future work.
+The trained `LearnedRouter` (WP-3) drives measurably different zone mixes for different prompt
+classes, and — importantly — it **generalizes rather than memorizes**. On a held-out split of the
+evaluation battery (math · narrative · code · sensory), the trained router still separates prompt
+classes it never saw during training more sharply than the unlearned baseline: **3.10 versus 2.63**
+on the `nat_eval` held-out separation metric (`h02_heldout`). On the in-sample battery the gap is
+larger — separation **11.70 versus 4.25** for the unlearned L0 baseline on the same
+`separation_ratio` metric — which is the upper, optimistic read; the held-out 3.10/2.63 is the one
+we treat as the honest evidence of differentiation, since it measures prompts the router did not
+train on. The caveats that remain: this is at L1 small scale, and full-scale labeled batteries
+across more prompt classes are the conclusive read (future work). What is no longer open is whether
+routing differentiation *generalizes* at this scale — it does, modestly, on held-out prompts.
 
-## 6.3 The scale ladder: loss falls monotonically with size
+## 6.3 A size/zone ladder trends downward (suggestive, not a scaling law)
 
-Holding the corpus fixed and growing the model along a size ladder (single-output next-byte LM),
-held-out bits/byte fall monotonically:
+Holding the corpus fixed and growing the model along a three-rung ladder (single-output next-byte
+LM), held-out bits/byte fall at each step:
 
 | Rung | Params | Zones | Held-out bits/byte |
 |------|--------|-------|--------------------|
@@ -50,29 +62,38 @@ held-out bits/byte fall monotonically:
 | M | 56,534 | 3 | 4.054 |
 | L | 114,956 | **5** | **3.953** |
 
-Two things are worth noting. The improvement is monotone in size — at least consistent with the
-structure helping rather than hurting as it grows. And the best rung is the **five-zone** L
-configuration, which is the first real-data training of the SM/CB state-space zones (ADR-0008
-staged them until "the data earns it," and at this corpus size it does). Separately, moving from a
-single-output model to a **per-position autoregressive** form (WP-D7) reached **3.42 bits/byte at
-53K parameters** — better loss with roughly half the parameters — which is the efficiency unlock
-on the path toward an L2-scale run. None of this is an L2 proof; it is a curve, and a curve is
-evidence, not a guarantee.
+Two cautions keep this from being a scaling claim. First, three points are a trend, not a law —
+we cannot fit or extrapolate a scaling curve from S/M/L. Second, the ladder is **confounded**: the
+L rung changes *two* variables at once, parameters (20.7K → 115K) **and** zone count (3 → 5), so we
+cannot attribute the L improvement to size alone — the five-zone widening (the first real-data
+training of the SM/CB state-space zones, ADR-0008) is plausibly part of it. So the ladder is
+suggestive evidence that the architecture does not *degrade* with size at this range, not proof
+that it scales. Separately, a **per-position autoregressive** objective (WP-D7) reached 3.42
+bits/byte at 53K parameters; we note this only as a denser training objective that the path to L2
+will use — it predicts at every position rather than once per window, sees far more supervision
+signal, and so is *not* a controlled size or efficiency comparison against the single-output ladder
+above, and we do not present it as one. None of this is an L2 result; it is a small, confounded
+curve, which is evidence and not a guarantee.
 
 ## 6.4 H-03a: decision-faithful replay holds by construction
 
-The decision-faithfulness property (§4.2) holds by construction and is checked: for every sampled
-pass, replaying the recorded scores through the canonical merge decision reproduces the recorded
-survivors and weights (`verify_decision_faithful`), because the same function produces and verifies
-the decision. Decision-faithfulness is therefore not an empirical contingency at this scale but a
-structural guarantee; bit-faithfulness (H-03b) holds at the deterministic L0 scale and is
-mode-dependent at L1, as §4.2 sets out.
+Decision-faithfulness (§4.2) is a **design property, not an empirical result**, and we flag it as
+such: replaying the recorded scores through the canonical merge decision reproduces the recorded
+survivors and weights because the *same* function (`prune_and_reweight`) produces and verifies the
+decision (a non-circular sharing we verify in the code, §4.2), so the check confirms the
+implementation matches the specification and cannot, by construction, disconfirm the property. We
+report it here for completeness — the structural guarantee is the point of the architecture — but
+it is not evidence in the sense the H-01 ablation is. Bit-faithfulness (H-03b) *is* empirical and
+mode-dependent: it holds at the deterministic L0 scale and only under a deterministic-inference mode
+at L1, as §4.2 sets out.
 
 ## 6.5 Summary
 
-The load-bearing hypothesis is supported at L1 on real data, unanimously across seeds, with an
-honest small-scale caveat; routing differentiation is learnable and measured, with an in-sample
-caveat; the architecture scales monotonically over the ladder we ran, with the five-zone rung
-best; and the verifiability guarantee that motivates the whole design holds by construction. What
-we have *not* shown — generalization of routing, a task-level capability metric, the hold surviving
-orders-of-magnitude more scale, and federated training in practice — is the subject of §8 and §9.
+The load-bearing hypothesis is supported (non-inferiority, with a modest mean advantage) at L1 on
+real data across five seeds, with honest small-scale and no-significance-test caveats; routing
+differentiation is learnable and **generalizes** at small scale (held-out 3.10 vs 2.63); the
+size/zone ladder trends downward over three confounded rungs; and the verifiability guarantee that
+motivates the whole design holds by construction. What we have *not* shown — a parameter-matched
+mixture-of-experts baseline and component ablations to identify the operative cause, a task-level
+capability metric, results on a standard corpus, the hold surviving orders-of-magnitude more scale,
+and federated training in practice — is the subject of §8 and §9.

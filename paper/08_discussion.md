@@ -17,18 +17,33 @@ structure and read three properties off it.
 
 We hold the results to their limits.
 
-- **Scale.** Every quantitative result is at small scale: ~20K parameters, three to five zones,
-  byte-level tokenization, ~1M tokens. H-01's hold is unanimous across seeds but at a scale where a
-  larger model, BPE tokenization, more depth, and orders of magnitude more data could change the
-  verdict. The scale ladder is monotone and encouraging, but a curve over three rungs is not a law.
-- **Synthetic versus real.** The synthetic H-01 read was marginal (3/5); the real-data read was
-  decisive (5/5). We treat the real-data read as primary and report the synthetic one as marginal,
-  but the gap between the two is itself a caution: the verdict is task-sensitive, and a different
-  real task could read differently.
-- **In-sample metrics.** H-02's routing differentiation is measured in-sample; it shows
-  differentiation is learnable and measurable, not that it generalizes. The capability proxy is the
-  inverse of held-out loss, not a task-level metric (accuracy, downstream eval), because the model
-  is not yet large enough to have a meaningful one.
+- **Scale.** Every quantitative result is at small scale: ~20K–115K parameters, three to five
+  zones, byte-level tokenization, ~1M tokens. H-01's non-inferiority hold is across five seeds but
+  at a scale where a larger model, BPE tokenization, more depth, and orders of magnitude more data
+  could change the verdict. The size/zone ladder trends downward but a confounded three-rung curve
+  is not a scaling law.
+- **Missing baselines and ablations.** This is the most important gap and we name it plainly. H-01
+  compares NAT against exactly one control — an equal-parameter dense single-block transformer.
+  There is **no parameter-matched mixture-of-experts baseline**, the most obvious comparison for a
+  paper positioned against MoE, and **no component ablation** isolating which feature carries the
+  effect (router vs the pruning merge vs the partition itself vs SSM/attention heterogeneity). The
+  ~0.08–0.10 loss gap could in principle be a regularization effect of the pruning merge or of
+  using several narrower sub-blocks rather than evidence that *declaring named structure* is the
+  operative cause; our current experiments cannot rule that out. We also report only on a bespoke
+  corpus, not a standard one (next).
+- **Non-standard corpus.** Results are on the 1.12M-token "values spine," a hand-curated corpus no
+  one else uses, which makes the numbers non-comparable to external results. A standard small-LM
+  benchmark (enwik8/text8/WikiText) is needed for comparability.
+- **Statistics.** Five seeds, no within-arm variance reported, no formal significance test; the
+  synthetic (3/5) and real (5/5) reads are not statistically distinguishable at N=5, so we do not
+  read the difference between them as the architecture "sharpening."
+- **Metric.** The capability proxy is inverse held-out loss, not a task-level metric (accuracy,
+  downstream eval), because the model is not yet large enough to have a meaningful one. H-02
+  generalizes on a held-out split at this scale (3.10 vs 2.63), but a full labeled battery at scale
+  is the conclusive routing read.
+- **The brain analogy is not yet earned.** We have not shown that the neuro-motivated zone
+  assignment outperforms a *random* equal-width partition of the same hidden state. Until that
+  ablation is run, the neuroscience framing is motivation, not evidence, and we treat it as such.
 - **Specified versus demonstrated.** The federated and Belnap-consensus layer (§7) is specified, not
   demonstrated; bit-faithful provenance (H-03b) is mode-dependent; the TLA+ modules are written but
   not yet TLC-checked in our environment. We label each of these in place rather than rounding up.
