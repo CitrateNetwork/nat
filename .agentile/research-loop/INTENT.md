@@ -134,6 +134,27 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
+### 2026-06-22 — SICP + H-01 re-confirmed on the grown corpus (Claude, manual)
+- **Sourced**: **SICP** (Abelson & Sussman) from `sarabander/sicp` — the book HTML is
+  explicitly **CC-BY-SA-4.0** (owner approved the CC-BY-SA fetch). Tag-stripped the 39
+  section xhtml → `from-text` → **461 passages**. License-tagged CC-BY-SA-4.0; the
+  fail-closed gate accepted it (0 license quarantines).
+- **Refined**: folded SICP into `corpus-v3`: **1,914,943 tokens** (was 1.70M; base was
+  1.12M) / 5064 docs / 1688 shards / aggregate_quality 0.827. Quarantined 315
+  (exact_dup ×264, pii ×43, near_dup ×4, too_short ×4).
+- **Re-ran the CONCLUSIVE H-01 ablation on `corpus-v3`** (GPU `candle-cuda`, real
+  NatModel vs equal-param dense, params 20718≈20701, held-out cap/param, 5 seeds):
+  **H-01 HOLDS, 5/5 seeds.** Mean cap/param nat **1.575e-5** > dense **1.537e-5**;
+  per-seed NAT loss 3.058–3.074 < dense 3.138–3.148.
+- **Why this matters (honest)**: the original decisive read was on a 1.12M prose-heavy
+  corpus. corpus-v3 is bigger *and harder* — code (Rust Book + 3 crates) and SICP raise
+  the entropy (losses rose from ~2.9 to ~3.1, as expected). The **NAT-over-dense gap
+  survives the harder distribution**, so the hold is not an artifact of easy/prose-only
+  text. Still L1 small scale (~20K params); **L2 remains the open question** — a larger
+  run could still refute, and we'd say so.
+- **Next**: BPE on corpus-v3; computation-lineage PD primaries (Lovelace, Turing);
+  scale the ablation toward L2 when compute is committed.
+
 ### 2026-06-22 — code & craft cycle: the CX zone (Claude, manual; pre-Hermes)
 - **Intent addressed**: the latest bottleneck — *"add code (CX) and more reasoning/
   logic"*. Pillar III (a good coder) was the most under-served zone; this cycle grows it.

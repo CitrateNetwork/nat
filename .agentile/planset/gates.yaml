@@ -106,6 +106,10 @@ gates:
           real text. (The earlier WP-5 synthetic read was a marginal 3/5; real data
           is decisive.) Caveat: small byte-LM 3-zone scale (~20K params); L2 scale
           remains future. Honest posture: if a larger run refutes it, change course.
+          RE-CONFIRMED 2026-06-22 on corpus-v3 (1.91M tokens incl. code + SICP, a more
+          diverse distribution — losses rose ~2.9→~3.1 accordingly): still HOLDS 5/5
+          (mean cap/param nat 1.575e-5 > dense 1.537e-5; NAT loss 3.058–3.074 < dense
+          3.138–3.148) — the NAT-over-dense gap reproduces, not a prose-only artifact.
         evidence: "crates/nat-ablation/src/real.rs (run_real_corpus_ablation); example real_h01_corpus"
 
   - id: gate4

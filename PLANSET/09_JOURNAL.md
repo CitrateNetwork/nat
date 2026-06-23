@@ -345,3 +345,58 @@ sprints are honestly closed with their results credited to the sprint that earne
 federated *proof-at-scale* (H-05b) is unproven until a real multi-node run; gate4 is
 correctly red. And corpus growth toward the L2 read is now the continuous research-loop /
 HERMES-S1 job, not a closed deliverable.
+
+---
+
+# 2026-06-22 — H-01 on a grown corpus (code + SICP): losses rose, gap held, 5/5
+
+The load-bearing bet got its first real stress test today, and it held. Until now H-01
+("zone partitioning does not cost capability per parameter") was decided on a 1.12M-token,
+prose-heavy public-domain corpus. The fair worry: maybe partitioning only wins on easy,
+homogeneous text. So I grew the corpus in the direction it was weakest — code — and then
+the direction the owner asked for next — SICP — and re-ran the *same* ablation on the
+*harder* distribution.
+
+## What changed in the corpus
+
+Two grows, same fail-closed pipeline:
+- **Code (CX zone)**: the Rust Book (rust-lang/book, MIT/Apache) via `from-text`, and
+  three idiomatic crates (anyhow, itertools, serde, MIT/Apache) via `from-code`. +52%
+  tokens → `corpus-v2` (1.70M).
+- **SICP** (sarabander/sicp, CC-BY-SA-4.0, owner-approved): the book HTML tag-stripped
+  via `from-text`. → `corpus-v3` (1.91M tokens, 5064 docs).
+
+Every source passed the license allow-list clean (zero license quarantines across both
+grows). CC-BY-SA-4.0 is on the allow-list; the owner approved the ShareAlike fetch, and
+the recipe carries a `SKIP_SICP=1` switch for any permissive-only deployment.
+
+## The result
+
+`run_real_corpus_ablation_seeds` on corpus-v3 (real NatModel vs equal-param dense,
+20718≈20701, held-out cap/param, 5 seeds, GPU): **H-01 HOLDS, 5/5 seeds.** Mean cap/param
+nat 1.575e-5 > dense 1.537e-5; per-seed NAT loss 3.058–3.074 < dense 3.138–3.148.
+
+The losses *rose* versus the prose-only run (~2.9 → ~3.1). That is the honest tell that
+the distribution genuinely got harder — code and SICP are higher-entropy for a tiny
+byte-LM. What matters is that the **gap between NAT and dense persisted through that
+harder distribution**. Partitioning isn't winning because the text is easy; it's winning
+on a mixed prose+code+CS-textbook corpus too.
+
+## The durable lesson
+
+When a result might be an artifact of a friendly test set, the move is not to re-run the
+same easy test more times — it is to *make the test harder in the direction you most
+suspect* and see if the effect survives. Adding code was the adversarial grow for H-01,
+and it survived it. That is worth more than a sixth prose seed.
+
+## What is true now, and what is still a bet
+
+*True:* H-01 holds 5/5 on a 1.91M-token corpus that spans prose, code, and SICP; the
+license gate held fail-closed across CC-BY-SA and MIT/Apache sources; the grow→ablate
+loop is now a committed, Hermes-automatable recipe (`scripts/fetch-code-craft.sh`).
+
+*Still a bet:* this is unchanged on the scale axis — ~20K params, byte-level, ~2M tokens,
+3 zones. L2 (BPE depth, far more params/tokens) is the real question and could still
+refute. bits/byte and cap/param are not comparable across different corpora, so the only
+honest cross-corpus claim is "the NAT-over-dense gap reproduces," not "the model got
+better." If the L2 run refutes H-01, change course.

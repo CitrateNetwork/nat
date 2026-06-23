@@ -12,6 +12,13 @@ Format: `H-id | statement | status: open|supported|refuted | evidence`.
   dense per parameter on real text. (The WP-5 synthetic read was a marginal 3/5;
   real data is decisive.) Caveat: small byte-LM 3-zone scale (~20K params); L2 scale
   is future. If a larger run refutes it, change course.
+  **Re-confirmed on a harder corpus (2026-06-22, `corpus-v3`):** the same ablation on
+  the grown **1.91M-token** corpus — now including code (Rust Book + anyhow/itertools/
+  serde) and SICP, a more diverse and higher-entropy distribution — **still HOLDS 5/5
+  seeds** (mean cap/param nat 1.575e-5 > dense 1.537e-5; NAT loss 3.058–3.074 < dense
+  3.138–3.148). Losses are higher than the prose-only run (the distribution is harder),
+  but the NAT-over-dense **gap persists**, so the hold is not an artifact of an
+  easy/prose-only corpus. Still L1 small scale; L2 remains the open question.
 
 - **H-02** | Context-aware routing produces measurably different zone mixes for
   different prompt classes. | **supported (held-out at L1)** | NAT-S2 WP-3 — the

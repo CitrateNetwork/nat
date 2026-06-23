@@ -47,7 +47,7 @@ explainer (we own the framing) · `⚠` verify license before fetch.
 
 | Work | Status | Source |
 |------|--------|--------|
-| Abelson & Sussman — *Structure and Interpretation of Computer Programs* (SICP) | ✓ | **CC-BY-SA-4.0** — text repo; on the allow-list but kickoff held CC-BY-SA "for review" — owner to confirm before fetch (markdown via `from-text`) |
+| Abelson & Sussman — *Structure and Interpretation of Computer Programs* (SICP) | ✅ done | **CC-BY-SA-4.0** — `sarabander/sicp` HTML (book files explicitly CC-BY-SA-4.0) → tag-strip → `from-text` (461 passages, 2026-06-22; owner-approved the CC-BY-SA fetch) |
 | *The Rust Programming Language* (the Book) | ✅ done | **MIT/Apache** — `rust-lang/book` markdown → `from-text` (550 passages, 2026-06-22) |
 | Permissive source repos (MIT/Apache/BSD) | ✅ | **`nat-corpus from-code`** — `rust-lang/log` + **anyhow, itertools, serde (MIT/Apache, 2026-06-22)**; `scripts/fetch-code-craft.sh` |
 | The Unix philosophy; "worse is better"; "do one thing well" | `©→CC0` | authored explainer (planned) |
