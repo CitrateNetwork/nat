@@ -25,8 +25,8 @@ explainer (we own the framing) · `⚠` verify license before fetch.
 | Work | Status | Source |
 |------|--------|--------|
 | Wittgenstein — *Philosophical Investigations* (rule-following §§138–242; private language §§243–315) | `©→CC0` | **done**: seed `wittgenstein-rule-following`, `wittgenstein-private-language`, `form-of-life-and-the-room` |
-| Wittgenstein — *Tractatus Logico-Philosophicus* | ✓ | Gutenberg **5740** |
-| George Boole — *An Investigation of the Laws of Thought* | ✓ | Gutenberg **15114** (logic→algebra→computation root) |
+| Wittgenstein — *Tractatus Logico-Philosophicus* | ✓ done | Gutenberg **5740** (.tex → `from-text --strip latex`) |
+| George Boole — *An Investigation of the Laws of Thought* | ✓ done | Gutenberg **15114** (.tex → `from-text --strip latex`) |
 | Bertrand Russell — *The Problems of Philosophy* / *Introduction to Mathematical Philosophy* / *The Analysis of Mind* | ✓ | Gutenberg 5827 ✅, 41654 ✅, 2529 |
 | Lewis Carroll — *What the Tortoise Said to Achilles* (the rule-following regress) | ✓ | PD (transcribe) |
 | Belnap four-valued logic; first-degree entailment | `©→CC0` | **done**: seed `belnap-four`, `fde-entailment` |
