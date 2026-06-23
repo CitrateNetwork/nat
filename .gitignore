@@ -19,3 +19,11 @@ formal/*.toolbox/
 
 # TLC tools (downloaded)
 /.tlc/
+
+# LaTeX build artifacts
+paper/arxiv/*.pdf
+paper/arxiv/*.aux
+paper/arxiv/*.bbl
+paper/arxiv/*.blg
+paper/arxiv/*.log
+paper/arxiv/*.out
