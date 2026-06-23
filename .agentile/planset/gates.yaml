@@ -110,7 +110,18 @@ gates:
           diverse distribution — losses rose ~2.9→~3.1 accordingly): still HOLDS 5/5
           (mean cap/param nat 1.575e-5 > dense 1.537e-5; NAT loss 3.058–3.074 < dense
           3.138–3.148) — the NAT-over-dense gap reproduces, not a prose-only artifact.
-        evidence: "crates/nat-ablation/src/real.rs (run_real_corpus_ablation); example real_h01_corpus"
+          RE-CONFIRMED AT SCALE on the WP-D7 architecture (2026-06-23): per-position
+          autoregressive AutoregLm (5-zone) vs param-matched per-position dense
+          (AutoregDenseLm), BPE-4096, on GPU (candle-cuda verified), 5 seeds, held-out
+          bits/byte. Size ladder 250K/1M/2M params: HOLDS 5/5 at every rung and the
+          NAT-over-dense gap WIDENS with scale (0.024 → 0.106 → 0.141 bits/byte) —
+          partitioning's per-param edge grows. Honest scope: scale-UP toward L2, not L2;
+          ≤2M params on ~788K BPE tokens (data-limited), 3 points not a 10B extrapolation.
+          True L2 (~10B, committed compute) = g5-l2, owner-gated; corpus volume is the
+          next lever.
+        evidence: >-
+          crates/nat-ablation/src/real.rs (run_real_corpus_ablation; byte-LM L1);
+          crates/nat-candle/examples/h01_autoreg_bpe.rs + AutoregDenseLm (WP-D7 at scale)
 
   - id: gate4
     name: Federated proof

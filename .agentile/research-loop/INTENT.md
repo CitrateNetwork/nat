@@ -134,6 +134,35 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
+### 2026-06-23 — H-01 on the WP-D7 architecture at scale: HOLDS, gap WIDENS (Claude, manual)
+- **First H-01 read on the architecture we actually intend to scale.** Every prior H-01
+  used the single-output byte-LM (`NatTrainModel`, vocab 256, ~20K params). This tests the
+  **per-position autoregressive LM** (`AutoregLm`, WP-D7) on **BPE-4096**, NAT 5-zone
+  (SM/CB SSM + HP/PF/CX attention) vs a new **param-matched per-position dense Transformer**
+  (`AutoregDenseLm`: causal attention + FFN, no partitioning; identical embedding+readout).
+  Genuinely on GPU (`candle-cuda`, ~92% util). 5 seeds, held-out bits/byte, param-match <0.02%.
+- **Size ladder (corpus-v3, BPE-4096, mean held-out bits/byte):**
+
+  | params | NAT d | NAT b/byte | dense b/byte | gap | verdict |
+  |-------:|------:|-----------:|-------------:|----:|:--------|
+  | 248,235 | 28 | 2.086 | 2.110 | 0.024 | HOLDS 5/5 |
+  | 1,005,603 | 100 | 1.890 | 1.996 | 0.106 | HOLDS 5/5 |
+  | 1,992,978 | 175 | 1.845 | 1.986 | 0.141 | HOLDS 5/5 |
+
+- **Finding**: H-01 **holds 5/5 at every scale**, and the NAT-over-dense gap **WIDENS with
+  size** (0.024 → 0.106 → 0.141 bits/byte). Zone partitioning's per-parameter advantage
+  *grows* as the model scales — the direction the L2 bet needs. At ~50× the L1 param scale
+  the bet not only survives the per-position + BPE architecture, it strengthens.
+- **Honest scope**: a scale-UP toward L2, NOT L2. True L2 (~10B, committed compute, gate
+  `g5-l2`) stays owner-gated. Only 3 points, all ≤2M params on ~788K BPE tokens (24k train
+  windows) — a widening trend, not a 10B extrapolation; the 2M point is near this corpus's
+  honest ceiling (held-out still improving, so not yet overfit-bound, but data-limited). At
+  BPE-4096 the embedding+readout dominate, so partitioning governs a minority of params — the
+  hold is a per-parameter signal in the cores. **Next data lever is VOLUME** (more tokens) to
+  push the ladder further without overfitting; then committed-compute L2.
+- **WP-D7 status**: the per-position LM was already built (PR #25); this *exercises and
+  validates* it at scale with the settled vocab 4096 and gives it its H-01 baseline.
+
 ### 2026-06-23 — param-matched vocab sweep + the GPU was never on (WP-D5, Claude, manual)
 - **Param-matched sweep** (`param_matched_bpe_sweep` example, **genuinely on GPU** —
   `is_cuda=true` verified): fix a ~500K param budget, binary-search width `d` per vocab so
