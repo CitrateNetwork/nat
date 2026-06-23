@@ -499,3 +499,65 @@ fixed and regression-tested.
 *Still a bet:* the cross-vocab bits/byte comparison is confounded by param count and can't
 isolate the tokenizer; everything is still L1 scale; WP-D7 (per-position LM) and a
 param-matched vocab comparison are the next honest rungs.
+
+---
+
+# 2026-06-23 — the param-matched answer, and the GPU that was never on
+
+## The clean experiment
+
+The last entry left a confound: bigger BPE vocab gave lower bits/byte, but bigger vocab also
+meant a bigger model (the embedding and output tables scale with vocab). So I built the
+param-matched sweep — fix a ~500K parameter budget, then for each vocab binary-search the
+model width `d` so every model lands at the same size. Now the only thing that varies is how
+the fixed budget splits between token-embeddings and compute-width. At equal params:
+
+    vocab 1024  d=135   2.351 bits/byte
+    vocab 2048  d=95    2.236
+    vocab 4096  d=56    2.180
+    vocab 8192  d=29    2.157
+
+The tokenizer effect is **real** — bits/byte still falls monotonically with vocab even at
+equal params, so the earlier 2.505 → 2.096 wasn't all parameters. But the returns collapse:
+1024→2048 buys 0.116, 2048→4096 buys 0.055, 4096→8192 buys only 0.023. And the `d` column
+tells the rest of the story: vocab 8192 has to starve its cores down to 29-wide to afford the
+embedding table. Past ~4096 you're paying compute width for a tokenizer gain that's nearly
+gone. The knee is ~4096 — the same knee the raw compression curve showed. Both the data
+(bytes/token) and the model (bits/byte at fixed budget) agree on where it is.
+
+## The GPU that was never on
+
+While setting this up I ran the GPU probe and it said `is_cuda = false`. Every "GPU" run
+this whole arc — the vocab-1024 LM, the vocab-8192 LM, and (almost certainly) last session's
+H-01 ablation — had silently been running on CPU. `Device::cuda_if_available` returns CPU on
+*any* CUDA error and candle trains on without a word. The error, when I surfaced it, was
+`CUDA_ERROR_OUT_OF_MEMORY` at context creation: ollama had two models pinned (a 48 GB qwen
+72B and a 5.5 GB llama) holding the GB10's unified memory pool. `nvidia-smi` showed 1% util
+and looked idle — because the memory was *reserved, not computing*. Reserved memory reads as
+idle on the util meter but still denies a new context. After `ollama stop` on both, the probe
+went green and utilization went 1% → 92%, power 15W → 50W.
+
+## The durable lesson
+
+A silent fallback is worse than a crash. `cuda_if_available` is built to be forgiving — no
+GPU, no problem, use CPU — and that forgiveness is exactly what let three runs claim a device
+they never touched. The honest-by-construction `backend_label` would have said `candle-cpu`
+the whole time; I just never looked at it, and the prose said "GPU." The fix in practice:
+`scripts/dgx-gpu.sh probe` *asserts* `is_cuda` and panics on fallback — run it before
+claiming a GPU number, every time. And on a unified-memory box, "the GPU is wide open" is not
+something `nvidia-smi`'s util column can tell you; check what's holding the pool.
+
+The numbers don't change — CPU and GPU run the same F32 candle ops and agree to ~3 decimals —
+so the bits/byte results stand. What was wrong was the label, and a wrong label on a provenance
+record is its own kind of bug.
+
+## What is true now, and what is still a bet
+
+*True:* the tokenizer effect survives param-matching (monotone, but knee at ~4096, default
+~4096); the GPU path is genuinely live and verified (`is_cuda=true`, 92% util); the eval is
+batched and the sweep is a committed, re-runnable example.
+
+*Still a bet:* L1 scale throughout (~500K params, ~2M tokens); the param-matched sweep holds
+training *sequences* equal but not training *bytes* (bigger-vocab windows cover more text),
+a second-order unfairness bits/byte mostly normalizes but doesn't erase; WP-D7 and real L2
+scale remain the rungs that could still move the picture.
