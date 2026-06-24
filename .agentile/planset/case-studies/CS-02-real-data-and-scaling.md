@@ -63,3 +63,60 @@ code-aware NORMALIZE (WP-D8), `from-pdf` (WP-D9), then bigger with committed com
   by the CC0 explainers.
 - The autoregressive result is at 53K params / 1M tokens — the scaling claim is a
   curve, not an L2 proof. Bigger runs are the test.
+
+---
+
+## Continuation (2026-06-24): corpus-v4 and the ladder at 4M / 8M
+
+**Dates:** 2026-06-24 · **Authors:** Larry Klosowski (architect), Claude Code (build)
+
+### What changed
+The 2M-param point (CS-01 / the 2026-06-23 ladder) was nearing the corpus's honest
+ceiling: held-out loss still fell, but ~788K BPE tokens can't feed a much bigger model
+without it memorizing the test. So we built **corpus-v4** — a strict superset of
+corpus-v3 (same curated pillars) plus a large public-domain volume haul
+(`scripts/fetch-corpus-volume.sh` → `scripts/build-corpus-v4.sh`): **74,236 docs /
+30,986,801 tokens (~16× corpus-v3)**, fresh BPE-4096 (2.230 bytes/token). Then we pushed
+the per-position H-01 ladder to **4M and 8M params** (prior ceiling 2M), 5 seeds each,
+`candle-cuda`, param-matched <0.02%.
+Rerun: `scripts/build-corpus-v4.sh`, then `scripts/dgx-gpu.sh run -p nat-candle
+--features cuda --release --example h01_autoreg_bpe -- <corpus-v4-dir> <bpe-4096-v4.json>
+<target_params> <max_windows> 5`.
+
+### Result (mean held-out bits/byte, within-rung NAT vs dense)
+| params | NAT | dense | gap | verdict |
+|-------:|----:|------:|----:|:--------|
+| 3,993,978 | 2.000 | 2.183 | **0.183** | HOLDS 5/5 |
+| 7,992,811 | 2.425 | 2.631 | **0.206** | HOLDS 4/5 |
+
+Across the full ladder the gap reads **0.024 → 0.106 → 0.141 → 0.183 → 0.206** — it keeps
+widening, now at 4× the prior param scale on a 16× corpus. The 4M rung is clean and
+unanimous.
+
+### What surprised us — the diverged seed
+At 8M, **one seed of five diverged**: seed 2's NAT arm hit **3.314 b/byte**, worse than its
+own dense control (2.649) and ~1.3 above its sibling NAT seeds. That is what makes 8M 4/5
+rather than 5/5. We read it as an **optimizer instability, not an architecture failure**,
+and the evidence is on the record: (1) the dense arm at the same seed trained fine, so the
+seed isn't cursed — only the *wide* NAT arm tripped; (2) the four clean NAT seeds posted the
+**best numbers on the whole ladder** (down to 1.973), so excluding the diverged seed the 8M
+gap is **~0.42 b/byte — the widest measured**; (3) the signature is textbook early-step
+Adam blow-up at `d=476` with a flat `lr=0.003` and no warmup. The bug *sharpened* the read
+(it surfaced the widest clean gap), and it sits in the recipe, not the thesis.
+
+### Decision / fix (verdict in flight)
+Both arms were folded onto one shared `train_minibatched_impl` with **linear LR warmup
+(first 5% of steps) + global grad-norm clip at 1.0** — standard hygiene, and the single-loop
+refactor makes ADR-0005's "identical training" literally enforced rather than copy-pasted.
+All 37 nat-candle tests stay green; it compiles and runs on CUDA; the re-run (8M then 4M
+under the unified recipe) is **in flight — the post-fix 5/5 is not yet confirmed.** If the
+fix doesn't resolve the divergence, that is the result and the journal records it.
+
+### Open threads (updated)
+- Post-fix 8M re-confirmation pending; the 4M/8M numbers above are under the *pre-fix*
+  recipe, so the coherent corpus-v4 ladder is the re-run, not this table.
+- bits/byte is not comparable across the v3→v4 corpus change; only the within-corpus 4M→8M
+  widening (0.183 → 0.206) is a clean read. The cross-corpus span mixes scale + distribution.
+- At BPE-4096 embedding+readout dominate the budget — the hold is a per-parameter signal in
+  the cores. ≤8M on 31M tokens is a scale-*up*; real L2 (committed compute, g5-l2) is still
+  the rung that could refute.

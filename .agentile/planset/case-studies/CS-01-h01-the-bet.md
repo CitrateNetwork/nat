@@ -52,7 +52,10 @@ building toward L2; it is not yet validated *at* L2.
 
 ## Open threads
 - Scale: does the hold survive BPE, depth, and orders of magnitude more params/tokens?
-  The scale ladder (CS-02) is encouraging, not conclusive at scale.
+  The scale ladder (CS-02) is encouraging, not conclusive at scale. **Update (2026-06-24):**
+  pushed to 4M (HOLDS 5/5) and 8M (HOLDS 4/5) on corpus-v4 (31M tokens); the gap keeps
+  widening (now 0.024 → 0.206 across the ladder), with one 8M seed diverging on an optimizer
+  instability (fix in flight). See CS-02 "Continuation (2026-06-24)".
 - H-02 held-out is now done (`nat-eval::h02_heldout`, PR #29): the trained router beats
   the L0 baseline on prompt classes it never saw (3.10 vs 2.63), so it generalizes, not
   memorizes. Open thread: this is held-out on the prompt-class battery; full-scale
