@@ -14,7 +14,7 @@
 //! soft (activation×score) combine as WP-2, applied independently at each position.
 
 use crate::seed::{name_seed, seeded_linear, seeded_scalar_var, seeded_uniform, SplitMix64};
-use candle_core::{DType, Device, Result, Tensor, D};
+use candle_core::{backprop::GradStore, DType, Device, Result, Tensor, Var, D};
 use candle_nn::optim::{AdamW, ParamsAdamW};
 use candle_nn::{loss, Linear, Module, Optimizer, VarBuilder, VarMap};
 use nat_types::{CoreType, ZoneId};
@@ -302,7 +302,8 @@ impl AutoregLm {
     }
 
     /// Mini-batch SGD over shuffled sequences. Targets are the inputs shifted by one
-    /// (next-token), computed inside the loss.
+    /// (next-token), computed inside the loss. Delegates to the shared
+    /// [`train_minibatched_impl`] so the NAT and dense arms train identically (ADR-0005).
     pub fn train_minibatched(
         &mut self,
         ids: &Tensor,
@@ -311,33 +312,17 @@ impl AutoregLm {
         lr: f64,
         shuffle_seed: u64,
     ) -> Result<()> {
-        let n = ids.dims2()?.0;
-        let bs = batch_size.clamp(1, n.max(1));
-        let mut opt = AdamW::new(
-            self.varmap.all_vars(),
-            ParamsAdamW {
-                lr,
-                ..Default::default()
-            },
-        )?;
-        let mut perm: Vec<u32> = (0..n as u32).collect();
-        for epoch in 0..epochs {
-            shuffle(
-                &mut perm,
-                shuffle_seed ^ (epoch as u64).wrapping_mul(0x9E37_79B9),
-            );
-            let mut start = 0;
-            while start < n {
-                let end = (start + bs).min(n);
-                let idx =
-                    Tensor::from_vec(perm[start..end].to_vec(), (end - start,), &self.device)?;
-                let xb = ids.index_select(&idx, 0)?;
-                let l = self.loss_tensor(&xb)?;
-                opt.backward_step(&l)?;
-                start = end;
-            }
-        }
-        Ok(())
+        let vars = self.varmap.all_vars();
+        train_minibatched_impl(
+            &self.device,
+            vars,
+            ids,
+            epochs,
+            batch_size,
+            lr,
+            shuffle_seed,
+            |xb| self.loss_tensor(xb),
+        )
     }
 }
 
@@ -477,7 +462,8 @@ impl AutoregDenseLm {
     }
 
     /// Same mini-batch protocol as `AutoregLm::train_minibatched` (ADR-0005: both
-    /// arms see identical batches in identical order for a given seed).
+    /// arms see identical batches in identical order for a given seed) — they share the
+    /// exact same [`train_minibatched_impl`].
     pub fn train_minibatched(
         &mut self,
         ids: &Tensor,
@@ -486,34 +472,113 @@ impl AutoregDenseLm {
         lr: f64,
         shuffle_seed: u64,
     ) -> Result<()> {
-        let n = ids.dims2()?.0;
-        let bs = batch_size.clamp(1, n.max(1));
-        let mut opt = AdamW::new(
-            self.varmap.all_vars(),
-            ParamsAdamW {
-                lr,
-                ..Default::default()
-            },
-        )?;
-        let mut perm: Vec<u32> = (0..n as u32).collect();
-        for epoch in 0..epochs {
-            shuffle(
-                &mut perm,
-                shuffle_seed ^ (epoch as u64).wrapping_mul(0x9E37_79B9),
-            );
-            let mut start = 0;
-            while start < n {
-                let end = (start + bs).min(n);
-                let idx =
-                    Tensor::from_vec(perm[start..end].to_vec(), (end - start,), &self.device)?;
-                let xb = ids.index_select(&idx, 0)?;
-                let l = self.loss_tensor(&xb)?;
-                opt.backward_step(&l)?;
-                start = end;
-            }
-        }
-        Ok(())
+        let vars = self.varmap.all_vars();
+        train_minibatched_impl(
+            &self.device,
+            vars,
+            ids,
+            epochs,
+            batch_size,
+            lr,
+            shuffle_seed,
+            |xb| self.loss_tensor(xb),
+        )
     }
+}
+
+/// The shared mini-batch AdamW training loop for **both** H-01 arms. Keeping it in one
+/// place is what makes ADR-0005's "identical training" literally true rather than a
+/// promise kept by copy-paste. Two stabilizers beyond plain AdamW, both deterministic
+/// and applied identically to NAT and dense so the comparison stays clean:
+///
+/// - **Linear LR warmup** over the first 5% of steps. Adam's second-moment estimate is
+///   noisy in the first handful of steps, so a wide model (large `d`) can take a few
+///   enormous steps and diverge at full `lr` — the failure mode that blew up one seed of
+///   the 8M rung (`lr=0.003`, `d=476`). Warmup eases in the step size.
+/// - **Global grad-norm clipping** at 1.0 (standard LM hygiene) — a second guard on the
+///   same failure mode: if the total gradient norm spikes, the step is rescaled down.
+#[allow(clippy::too_many_arguments)]
+fn train_minibatched_impl(
+    device: &Device,
+    vars: Vec<Var>,
+    ids: &Tensor,
+    epochs: usize,
+    batch_size: usize,
+    lr: f64,
+    shuffle_seed: u64,
+    mut loss_of: impl FnMut(&Tensor) -> Result<Tensor>,
+) -> Result<()> {
+    let n = ids.dims2()?.0;
+    let bs = batch_size.clamp(1, n.max(1));
+    let total_steps = (epochs * n.div_ceil(bs)).max(1);
+    let warmup = (total_steps / 20).max(1);
+    const MAX_GRAD_NORM: f64 = 1.0;
+
+    let mut opt = AdamW::new(
+        vars.clone(),
+        ParamsAdamW {
+            lr,
+            ..Default::default()
+        },
+    )?;
+    let mut perm: Vec<u32> = (0..n as u32).collect();
+    let mut step = 0usize;
+    for epoch in 0..epochs {
+        shuffle(
+            &mut perm,
+            shuffle_seed ^ (epoch as u64).wrapping_mul(0x9E37_79B9),
+        );
+        let mut start = 0;
+        while start < n {
+            let end = (start + bs).min(n);
+            let idx = Tensor::from_vec(perm[start..end].to_vec(), (end - start,), device)?;
+            let xb = ids.index_select(&idx, 0)?;
+
+            // Linear warmup, then hold flat at `lr`.
+            let cur_lr = if step < warmup {
+                lr * (step as f64 + 1.0) / warmup as f64
+            } else {
+                lr
+            };
+            opt.set_learning_rate(cur_lr);
+
+            let l = loss_of(&xb)?;
+            let mut grads = l.backward()?;
+            clip_grad_norm(&mut grads, &vars, MAX_GRAD_NORM)?;
+            opt.step(&grads)?;
+
+            start = end;
+            step += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Global L2 grad-norm clip: if the total gradient norm across `vars` exceeds
+/// `max_norm`, scale every gradient by `max_norm / norm`; a no-op when already under.
+/// Deterministic, so it preserves seed-reproducibility and the ADR-0005 equal-training
+/// guarantee.
+fn clip_grad_norm(grads: &mut GradStore, vars: &[Var], max_norm: f64) -> Result<()> {
+    let mut sq = 0f64;
+    for v in vars {
+        if let Some(g) = grads.get(v.as_tensor()) {
+            sq += g.sqr()?.sum_all()?.to_scalar::<f32>()? as f64;
+        }
+    }
+    let norm = sq.sqrt();
+    if norm <= max_norm {
+        return Ok(());
+    }
+    let scale = max_norm / (norm + 1e-6);
+    for v in vars {
+        // Read the grad, drop the borrow, then write the scaled grad back.
+        let scaled = match grads.get(v.as_tensor()) {
+            Some(g) => g.affine(scale, 0.0)?,
+            None => continue,
+        };
+        grads.insert(v.as_tensor(), scaled);
+    }
+    Ok(())
 }
 
 fn shuffle(perm: &mut [u32], seed: u64) {

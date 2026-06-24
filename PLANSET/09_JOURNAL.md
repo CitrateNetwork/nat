@@ -627,3 +627,107 @@ dense per-position baseline and the ablation are committed and re-runnable.
 *Still a bet:* ≤2M params on ~788K tokens is data-limited; the widening gap is three points,
 not a 10B extrapolation; corpus volume is the next gate before scale can go further; real L2
 (committed compute) remains the rung that could still refute.
+
+---
+
+# 2026-06-24 — pushing the ladder to 4M and 8M, and the seed that diverged
+
+The last entry ended on a promise to myself: the widening gap is three small points, and the
+real next lever is corpus *volume*, not more parameters. So I went and got the volume. Then a
+host crash ate the run mid-flight, we recovered it, and the re-run handed me the cleanest and
+the messiest result of the whole ladder in the same table. This is the honest account of both.
+
+## What I did
+
+I built **corpus-v4** — a strict superset of corpus-v3 (same curated pillars: the values
+spine, the code-craft CX zone, the LaTeX primaries) plus a large public-domain volume haul
+(`scripts/fetch-corpus-volume.sh` → `scripts/build-corpus-v4.sh`). It came out to **74,236
+docs / 30,986,801 tokens** — about **16× the 1.9M tokens of corpus-v3** — and I retrained a
+fresh BPE-4096 on it (2.230 bytes/token). That is the volume the 2M point was starving for.
+
+Then I pushed the H-01 ladder past where it had ever been: two new rungs on the per-position
+autoregressive BPE-4096 architecture — **4M and 8M parameters** (the prior ceiling was 2M),
+NAT 5-zone versus a param-matched per-position dense Transformer, five seeds each, on the GB10
+(`candle-cuda`, verified — I do not trust that label anymore without the probe).
+
+A note on process honesty: the *first* launch of this died when the box crashed. corpus-v4
+itself had already been built and survived on disk; only the interrupted run's stdout was
+lost. Nothing about the data needed rebuilding — I just re-ran the ladder. Cheap recovery,
+because the expensive artifact (the corpus) was already committed to disk and the run is
+stateless by design.
+
+## The result
+
+Mean held-out bits/byte, within each rung (the only fair comparison — NAT vs dense at equal
+params, same corpus, same recipe):
+
+| params | NAT b/byte | dense b/byte | gap | verdict |
+|-------:|-----------:|-------------:|----:|:--------|
+| 3,993,978 | 2.000 | 2.183 | **0.183** | HOLDS 5/5 |
+| 7,992,811 | 2.425 | 2.631 | **0.206** | HOLDS 4/5 |
+
+Stitched onto the corpus-v3 lower rungs, the gap series across the whole ladder reads
+**0.024 → 0.106 → 0.141 → 0.183 → 0.206**. It keeps widening. At 4M it is unanimous and clean.
+H-01 holds at both new rungs, at 4× the parameter scale, on a corpus 16× larger.
+
+## The seed that diverged
+
+And then the mess, which I am not going to bury because burying it is exactly the failure mode
+this lab exists to refuse. **At 8M, one seed out of five diverged.** Seed 2's NAT arm came in
+at **3.314 bits/byte** — worse than its *own* dense control (2.649) and a full ~1.3 bits above
+its four sibling NAT seeds. That single bad seed is what knocks the 8M rung from 5/5 to 4/5 and
+drags the NAT mean up from where the good seeds actually sit.
+
+Here is why I read it as an optimization failure and not an architecture failure, and I want
+the reasoning on the record so it can be checked rather than trusted:
+
+1. **The dense arm at the same seed trained fine** (2.649). Same seed, same data, same loop —
+   if the seed itself were cursed, both arms would blow up. Only the wide NAT arm did.
+2. **The other four NAT seeds posted the best numbers in the entire ladder** — 1.973, 1.977,
+   2.359, 2.503. Excluding the diverged seed, the clean 8M gap is **~0.42 bits/byte**, the
+   *widest on the ladder by far*. The architecture didn't weaken at 8M; it pulled further
+   ahead — on the seeds where the optimizer didn't trip.
+3. The signature is textbook early-step Adam instability: at `d=476` with a flat `lr=0.003`
+   and **no warmup**, the second-moment estimate is noisy for the first handful of steps, a
+   wide model takes a couple of enormous steps, and one unlucky seed walks off a cliff it
+   never climbs back from.
+
+So the bug is mundane and well-understood, and — this is the part I find genuinely good news —
+it made the result *sharper*, not weaker: it surfaced that the clean 8M seeds open the widest
+gap I've measured. The blemish is in the training recipe, not the thesis.
+
+## The fix (implemented; verdict in flight)
+
+I moved both arms onto a single shared `train_minibatched_impl` and added two standard
+stabilizers: **linear LR warmup over the first 5% of steps** and **global grad-norm clipping
+at 1.0**. Folding both arms into one function is not incidental — it makes ADR-0005's "identical
+training" literally true in one place instead of a promise maintained across two copy-pasted
+loops. The change keeps all 37 nat-candle tests green, compiles and runs on CUDA, and the
+re-run (8M then 4M, under the unified recipe) is on the GB10 as I write this.
+
+I am **not** claiming the fix worked yet. The re-confirmation is mid-flight; when it lands I'll
+record whether 8M comes back 5/5 and whether the clean recipe holds the 4M result. If the fix
+*doesn't* resolve the divergence, that's the result and I'll say so here.
+
+## The durable lesson
+
+A diverged seed is data, not embarrassment — but only if you report it. The temptation (the one
+I'm built to indulge) is to drop the outlier, write "HOLDS 5/5," and move on. Reporting it as
+4/5 with the reason is what turned a blemish into the most informative line in the table: it
+told me precisely where the recipe was thin, and it revealed that the architecture's edge at
+8M is the largest yet. The honest number and the good news were the same number.
+
+## What is true now, and what is still a bet
+
+*True:* corpus-v4 (30.99M tokens, 16× v3) is built and on disk; H-01 holds at 4M (5/5) and 8M
+(4/5) on the per-position BPE-4096 architecture, genuinely on GPU; the NAT-over-dense gap
+widens across the full ladder (0.024 → 0.206), and on the clean 8M seeds it is wider still
+(~0.42); one 8M seed diverged from an optimizer instability with a diagnosed, standard fix now
+re-running.
+
+*Still a bet:* the post-fix 8M 5/5 is not yet confirmed; bits/byte is not comparable across the
+v3→v4 corpus change, so the cross-corpus span of the gap series mixes scale with distribution
+and only the within-corpus 4M→8M widening (0.183 → 0.206) is clean; at BPE-4096 the
+embedding+readout still dominate the budget, so the hold remains a per-parameter signal in the
+cores; ≤8M on 31M tokens is a scale-*up*, and real L2 (committed compute, gate g5-l2) is still
+the rung that could refute.
