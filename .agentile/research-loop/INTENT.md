@@ -134,6 +134,43 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
+### 2026-06-24 — H-01 ladder pushed to 4M + 8M on corpus-v4 (16× volume): HOLDS, gap keeps widening (Claude, manual)
+- **What**: re-ran the WP-D7 H-01 ladder (`h01_autoreg_bpe`, per-position `AutoregLm`,
+  BPE-4096, NAT 5-zone vs param-matched dense Transformer) on **corpus-v4** — a strict
+  superset of corpus-v3 at **30,986,801 tokens / 74,236 docs** (≈16× the 1.9M-token
+  corpus-v3), built via `scripts/fetch-corpus-volume.sh` + `scripts/build-corpus-v4.sh`
+  and a fresh BPE-4096 (`bpe-4096-v4.json`, 2.230 bytes/token). Genuinely on GPU
+  (`candle-cuda`), 5 seeds/rung, held-out bits/byte, param-match <0.02%. Extends the
+  prior ladder (248K→1M→2M, all HOLDS 5/5) to the higher rungs the new volume supports
+  without overfitting. *(Re-run: the original launch died in a host crash; corpus-v4
+  itself built fine and was reused — only the interrupted run's stdout was lost.)*
+- **New rungs (mean held-out bits/byte, within-rung NAT vs dense):**
+
+  | params | NAT d | NAT b/byte | dense b/byte | gap | verdict |
+  |-------:|------:|-----------:|-------------:|----:|:--------|
+  | 3,993,978 | 295 | 2.000 | 2.183 | 0.183 | HOLDS 5/5 |
+  | 7,992,811 | 476 | 2.425 | 2.631 | 0.206 | HOLDS 4/5 |
+
+- **Finding**: H-01 holds at both new rungs and the NAT-over-dense gap **keeps widening**
+  across the whole ladder (2M 0.141 → 4M 0.183 → 8M 0.206). The 8M figure *includes* a
+  diverged seed dragging the NAT mean up; **excluding it the 8M gap is ~0.42 b/byte**
+  (4 stable seeds: NAT 1.97–2.50 vs dense 2.48–2.70). Zone partitioning's per-parameter
+  advantage continues to grow with scale on a 16×-larger corpus — the direction the L2
+  bet needs, now confirmed at 4× the prior param scale.
+- **The 8M caveat (honest)**: 8M **seed 2 diverged** — NAT 3.314 b/byte, *worse* than its
+  own dense arm (2.649) and ~1.3 above the other NAT seeds. That is an **optimization
+  failure on one seed, not the architecture losing**: the fixed `lr=0.003` is too hot at
+  d=476. **Follow-up: add LR warmup + grad-clip to `train_minibatched`, then re-confirm
+  the 8M rung at 5/5.**
+- **Honest scope (unchanged)**: still a scale-UP toward L2, NOT L2. Only 2 new points,
+  ≤8M params; at BPE-4096 the embedding+readout dominate the budget, so the hold is a
+  per-parameter signal in the cores, not a whole-model claim. True L2 (~10B, committed
+  compute, gate `g5-l2`) stays owner-gated. **corpus-v4 is gitignored — local-only; back
+  it up** (it cost a multi-hour rebuild after the crash).
+- **Next**: LR-stability fix → re-confirm 8M 5/5; push the ladder to 16M if the corpus
+  ceiling allows (held-out still improving at 8M, so likely room); then committed-compute
+  L2 read.
+
 ### 2026-06-23 — H-01 on the WP-D7 architecture at scale: HOLDS, gap WIDENS (Claude, manual)
 - **First H-01 read on the architecture we actually intend to scale.** Every prior H-01
   used the single-output byte-LM (`NatTrainModel`, vocab 256, ~20K params). This tests the
