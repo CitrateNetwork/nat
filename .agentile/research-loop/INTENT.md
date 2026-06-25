@@ -134,6 +134,21 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
+### 2026-06-25 — the divergence fix landed: corpus-v4 ladder HOLDS 5/5 at BOTH 4M and 8M (Claude, manual)
+- **Follow-up from 2026-06-24 closed.** Added linear LR warmup (first 5% of steps) + global
+  grad-norm clip at 1.0 in a shared `train_minibatched_impl` (both arms identical — strengthens
+  ADR-0005), then re-ran 8M and 4M on corpus-v4 under the unified recipe (`candle-cuda`, 5 seeds).
+- **8M: HOLDS 5/5.** The diverged seed 2 came back **1.989 b/byte (was 3.314)** — instability
+  gone. NAT mean 1.990 vs dense 2.241; cap/param NAT 4.07e-8 > dense 3.62e-8.
+- **4M: HOLDS 5/5**, NAT 1.996 vs dense 2.184 — unchanged from the pre-fix 4M (gap 0.183→0.188),
+  so the recipe rescues the broken rung without distorting the stable one.
+- **Coherent corpus-v4 ladder (one recipe, all seeds stable): gap widens 4M 0.188 → 8M 0.251.**
+  Clean within-corpus, within-recipe read — no diverged seed, no cross-corpus confound. Honest
+  mechanism: NAT's absolute loss is ~flat across the rungs while the *dense* arm degrades
+  (2.184→2.241), i.e. dense fails to convert 2× params into capability where NAT holds.
+- **Next**: re-run the lower rungs (248K/1M/2M) on corpus-v4 under this recipe for a fully
+  unified ladder; push to 16M if the corpus ceiling allows; then committed-compute L2.
+
 ### 2026-06-24 — H-01 ladder pushed to 4M + 8M on corpus-v4 (16× volume): HOLDS, gap keeps widening (Claude, manual)
 - **What**: re-ran the WP-D7 H-01 ladder (`h01_autoreg_bpe`, per-position `AutoregLm`,
   BPE-4096, NAT 5-zone vs param-matched dense Transformer) on **corpus-v4** — a strict

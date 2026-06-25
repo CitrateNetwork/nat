@@ -104,19 +104,32 @@ gap is **~0.42 b/byte — the widest measured**; (3) the signature is textbook e
 Adam blow-up at `d=476` with a flat `lr=0.003` and no warmup. The bug *sharpened* the read
 (it surfaced the widest clean gap), and it sits in the recipe, not the thesis.
 
-### Decision / fix (verdict in flight)
+### Decision / fix — confirmed (2026-06-25)
 Both arms were folded onto one shared `train_minibatched_impl` with **linear LR warmup
 (first 5% of steps) + global grad-norm clip at 1.0** — standard hygiene, and the single-loop
 refactor makes ADR-0005's "identical training" literally enforced rather than copy-pasted.
-All 37 nat-candle tests stay green; it compiles and runs on CUDA; the re-run (8M then 4M
-under the unified recipe) is **in flight — the post-fix 5/5 is not yet confirmed.** If the
-fix doesn't resolve the divergence, that is the result and the journal records it.
+All 37 nat-candle tests stay green. The re-run (8M then 4M under the unified recipe,
+`candle-cuda`, 5 seeds) **confirmed the fix**:
+
+| params | NAT | dense | gap | verdict |
+|-------:|----:|------:|----:|:--------|
+| 3,993,978 | 1.996 | 2.184 | 0.188 | HOLDS 5/5 |
+| 7,992,811 | 1.990 | 2.241 | **0.251** | HOLDS 5/5 |
+
+The 8M seed that diverged (3.314 b/byte) came back at **1.989** — instability gone, **8M now
+HOLDS 5/5.** 4M is unchanged from the pre-fix run (0.183 → 0.188), so the recipe rescues the
+broken rung without distorting the stable one. The clean within-corpus, within-recipe gap
+**widens 0.188 → 0.251**. Honest mechanism: NAT's absolute loss is ~flat across the rungs
+(1.996 → 1.990) while the *dense* arm degrades (2.184 → 2.241) — dense fails to convert 2×
+params into capability on this data where NAT holds.
 
 ### Open threads (updated)
-- Post-fix 8M re-confirmation pending; the 4M/8M numbers above are under the *pre-fix*
-  recipe, so the coherent corpus-v4 ladder is the re-run, not this table.
-- bits/byte is not comparable across the v3→v4 corpus change; only the within-corpus 4M→8M
-  widening (0.183 → 0.206) is a clean read. The cross-corpus span mixes scale + distribution.
+- The lower rungs (248K/1M/2M) are still on corpus-v3 under the pre-warmup recipe; a fully
+  unified ladder means re-running them on corpus-v4 with warmup+clip. The 4M/8M pair above is
+  the coherent, current read.
+- bits/byte is not comparable across rungs (different val splits) or across the v3→v4 corpus
+  change; only the within-rung gap is a clean comparison. The 4M→8M widening (0.188 → 0.251)
+  is that clean read.
 - At BPE-4096 embedding+readout dominate the budget — the hold is a per-parameter signal in
   the cores. ≤8M on 31M tokens is a scale-*up*; real L2 (committed compute, g5-l2) is still
   the rung that could refute.
