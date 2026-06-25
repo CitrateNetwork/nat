@@ -119,9 +119,40 @@ gates:
           ≤2M params on ~788K BPE tokens (data-limited), 3 points not a 10B extrapolation.
           True L2 (~10B, committed compute) = g5-l2, owner-gated; corpus volume is the
           next lever.
+          CONFIRMED FURTHER (2026-06-25): corpus-v4 (30.99M tokens, 16× v3), per-position
+          BPE-4096 ladder pushed to 4M + 8M params — HOLDS 5/5 at BOTH (after a warmup+clip
+          fix resolved one diverged 8M seed, 3.314→1.989 b/byte); within-recipe gap widens
+          0.188 → 0.251. The half-billion (~500M) scale read is the next milestone — see
+          gate3b + sprint SCALE-S1.
         evidence: >-
           crates/nat-ablation/src/real.rs (run_real_corpus_ablation; byte-LM L1);
           crates/nat-candle/examples/h01_autoreg_bpe.rs + AutoregDenseLm (WP-D7 at scale)
+
+  - id: gate3b
+    name: Scale validation — half a billion params
+    rung: L1.5
+    status: pending
+    # The bet holds and widens at ≤8M params on 31M tokens (g3-h01). gate3b is the
+    # honest scale-up: does it survive ~500M params on billions of license-clean tokens?
+    # The binding constraint is corpus volume, not the architecture. Program: sprint
+    # SCALE-S1. NOT a claim — a named, falsifiable milestone between L1 and L2 (g5-l2).
+    exit_criteria:
+      - id: g3b-checkpoint
+        desc: AutoregLm checkpoint/resume — a multi-day run survives a crash and resumes
+        met: false
+        note: WP-S1. NatTrainModel has save/load; the per-position arch we're scaling does not.
+      - id: g3b-volume
+        desc: corpus volume reaches billions of license-clean tokens (fail-closed gate intact)
+        met: false
+        note: WP-S4 scoping → WP-S5..S9. ~500M params wants 2.5–5B tokens; corpus-v4 is 31M.
+      - id: g3b-ladder
+        desc: H-01 holds (or is honestly refuted) at the 500M rung, param-matched vs dense, held-out
+        met: false
+        note: WP-S10..S12. Sampled seeds at the top to bound compute; gap reported as-is.
+      - id: g3b-eval
+        desc: a capability read beyond bits/byte (domain perplexity + small downstream tasks)
+        met: false
+        note: WP-S11. bits/byte alone is thin at 500M.
 
   - id: gate4
     name: Federated proof
