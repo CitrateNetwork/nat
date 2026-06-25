@@ -55,7 +55,7 @@ both. Ordered within each by dependency.
 ### Workstream B — Data pipeline to billions of license-clean tokens
 | WP | Subject | Acceptance | Status |
 |----|---------|-----------|--------|
-| WP-S4 | **Data-volume scoping** | a written, defensible inventory: realistic license-clean token yield per source (Gutenberg, Wikipedia, permissive code, HF datasets) + the connector work each needs; verdict on whether 2.5–5B is reachable | ⏳ next |
+| WP-S4 | **Data-volume scoping** | a written, defensible inventory: realistic license-clean token yield per source (Gutenberg, Wikipedia, permissive code, HF datasets) + the connector work each needs; verdict on whether 2.5–5B is reachable | ✅ **done (2026-06-25)** — `research-loop/DATA_VOLUME_SCOPING.md`. Verdict: **reachable with margin** (Gutenberg-full + Wikipedia + permissive code clear 2.5–5B several×); the program is **engineering, not sourcing**. Empirical counting run still owed before committing storage. |
 | WP-S5 | **Streaming/sharded pipeline** | the pipeline processes inputs without holding the whole corpus in memory; bounded RAM at 20GB+ input; deterministic shards preserved | ☐ |
 | WP-S6 | **Volume connectors** — full-Gutenberg sweep, HF-datasets (permissive subsets), Wikipedia (CC-BY-SA) | each emits `RawDoc` JSONL through the fail-closed license gate; license screening at scale; provenance immutable | ☐ |
 | WP-S7 | **Model-based quality filter as a fail-closed GATE** | upgrade the L0 heuristic scorer (`run_pipeline_with_scorer` is a score today) to a gate that quarantines below-threshold docs; tuned on a labeled sample | ☐ |
