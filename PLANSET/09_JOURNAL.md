@@ -709,6 +709,17 @@ I am **not** claiming the fix worked yet. The re-confirmation is mid-flight; whe
 record whether 8M comes back 5/5 and whether the clean recipe holds the 4M result. If the fix
 *doesn't* resolve the divergence, that's the result and I'll say so here.
 
+**Update (2026-06-25) — it worked.** The re-run came back: **8M HOLDS 5/5**, and the seed that
+diverged to 3.314 b/byte came back at **1.989** — the instability is gone. 4M also HOLDS 5/5,
+essentially unchanged from the pre-fix run (gap 0.183 → 0.188), so warmup+clip rescued the
+broken rung without distorting the stable one. Under the unified recipe the clean corpus-v4
+ladder reads NAT 1.996 / dense 2.184 at 4M and NAT 1.990 / dense 2.241 at 8M — the within-rung
+gap **widens 0.188 → 0.251**, no diverged seed, no cross-corpus confound. One thing I didn't
+predict and won't pretend I did: NAT's absolute loss is ~flat across the two rungs while the
+*dense* arm is what gets worse with size. The widening at 8M is dense failing to bank the extra
+parameters, not NAT surging — which is its own kind of point about the partitioned model
+holding its ground where the undifferentiated one slips.
+
 ## The durable lesson
 
 A diverged seed is data, not embarrassment — but only if you report it. The temptation (the one
@@ -719,15 +730,15 @@ told me precisely where the recipe was thin, and it revealed that the architectu
 
 ## What is true now, and what is still a bet
 
-*True:* corpus-v4 (30.99M tokens, 16× v3) is built and on disk; H-01 holds at 4M (5/5) and 8M
-(4/5) on the per-position BPE-4096 architecture, genuinely on GPU; the NAT-over-dense gap
-widens across the full ladder (0.024 → 0.206), and on the clean 8M seeds it is wider still
-(~0.42); one 8M seed diverged from an optimizer instability with a diagnosed, standard fix now
-re-running.
+*True:* corpus-v4 (30.99M tokens, 16× v3) is built and on disk; under the stabilized
+(warmup+clip) recipe H-01 **holds 5/5 at both 4M and 8M** on the per-position BPE-4096
+architecture, genuinely on GPU; the clean within-corpus, within-recipe gap widens 0.188 → 0.251;
+the divergence was an optimizer instability and the diagnosed fix resolved it (3.314 → 1.989 on
+the offending seed).
 
-*Still a bet:* the post-fix 8M 5/5 is not yet confirmed; bits/byte is not comparable across the
-v3→v4 corpus change, so the cross-corpus span of the gap series mixes scale with distribution
-and only the within-corpus 4M→8M widening (0.183 → 0.206) is clean; at BPE-4096 the
-embedding+readout still dominate the budget, so the hold remains a per-parameter signal in the
-cores; ≤8M on 31M tokens is a scale-*up*, and real L2 (committed compute, gate g5-l2) is still
-the rung that could refute.
+*Still a bet:* bits/byte is not comparable across rungs (different val splits) or across the
+v3→v4 corpus change, so only the within-rung gap is a clean comparison; the lower rungs
+(248K/1M/2M) are still on corpus-v3 / pre-warmup, so the *fully* unified ladder is a further
+re-run; at BPE-4096 the embedding+readout still dominate the budget, so the hold remains a
+per-parameter signal in the cores; ≤8M on 31M tokens is a scale-*up*, and real L2 (committed
+compute, gate g5-l2) is still the rung that could refute.
