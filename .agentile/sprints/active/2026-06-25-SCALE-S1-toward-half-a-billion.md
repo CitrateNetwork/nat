@@ -48,7 +48,7 @@ both. Ordered within each by dependency.
 ### Workstream A — Crash-safe, scalable training infra
 | WP | Subject | Acceptance | Status |
 |----|---------|-----------|--------|
-| WP-S1 | **Checkpoint/resume for `AutoregLm` + `AutoregDenseLm`** | `save(dir)`/`load(dir)` via safetensors; periodic checkpoint inside the train loop; a resumed run continues from the last step; round-trip + resume-equivalence tests | ⏳ next |
+| WP-S1 | **Checkpoint/resume for `AutoregLm` + `AutoregDenseLm`** | `save(dir)`/`load(dir)` via safetensors; periodic checkpoint inside the train loop; a resumed run continues from the last step; round-trip + resume-equivalence tests | 🟡 **weight-level done (2026-06-25)** — `save`/`load` + `train_minibatched_checkpointed` (per-epoch `model.safetensors`+`meta.json`) on both arms, 2 round-trip tests green (39 total). **Remainder:** wire resume into the run/example path (read `meta.json`, skip done epochs) + serialize AdamW state for *bit-identical* continuation (today a resume restarts the optimizer + LR warmup). |
 | WP-S2 | **bf16 mixed precision + gradient accumulation** | configurable dtype + accum steps; large effective batch fits the GB10 unified pool at d≫500; numerics within tolerance of f32 on a small model | ☐ |
 | WP-S3 | **Throughput profile of the candle-cuda path** | per-step wall-clock vs `d`/batch; identify the bottleneck (attention? matmul? host transfer) and a target tokens/sec at 500M | ☐ |
 

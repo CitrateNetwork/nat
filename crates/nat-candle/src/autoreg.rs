@@ -321,8 +321,51 @@ impl AutoregLm {
             batch_size,
             lr,
             shuffle_seed,
+            None,
             |xb| self.loss_tensor(xb),
         )
+    }
+
+    /// Like [`Self::train_minibatched`] but writes a checkpoint to `dir`
+    /// (`model.safetensors` + `meta.json`) at the end of every epoch, so a crashed
+    /// multi-day run loses at most one epoch. NOTE: the AdamW optimizer state is **not**
+    /// serialized — a resumed run reloads the weights and restarts the optimizer (and LR
+    /// warmup). Weight-level crash-safety, not bit-identical continuation; serializing
+    /// optimizer state is a follow-up (SCALE-S1 WP-S1).
+    pub fn train_minibatched_checkpointed(
+        &mut self,
+        ids: &Tensor,
+        epochs: usize,
+        batch_size: usize,
+        lr: f64,
+        shuffle_seed: u64,
+        dir: &std::path::Path,
+    ) -> Result<()> {
+        std::fs::create_dir_all(dir).map_err(candle_core::Error::wrap)?;
+        let vars = self.varmap.all_vars();
+        train_minibatched_impl(
+            &self.device,
+            vars,
+            ids,
+            epochs,
+            batch_size,
+            lr,
+            shuffle_seed,
+            Some((&self.varmap, dir)),
+            |xb| self.loss_tensor(xb),
+        )
+    }
+
+    /// Persist the model weights to `dir/model.safetensors`.
+    pub fn save(&self, dir: &std::path::Path) -> Result<()> {
+        std::fs::create_dir_all(dir).map_err(candle_core::Error::wrap)?;
+        self.varmap.save(dir.join("model.safetensors"))
+    }
+
+    /// Load weights previously written by [`Self::save`] (or a checkpoint) into this
+    /// model, which must have the same config/shapes.
+    pub fn load(&mut self, dir: &std::path::Path) -> Result<()> {
+        self.varmap.load(dir.join("model.safetensors"))
     }
 }
 
@@ -481,8 +524,47 @@ impl AutoregDenseLm {
             batch_size,
             lr,
             shuffle_seed,
+            None,
             |xb| self.loss_tensor(xb),
         )
+    }
+
+    /// Checkpointing counterpart to [`Self::train_minibatched`] — see
+    /// [`AutoregLm::train_minibatched_checkpointed`] for the (weight-level) semantics.
+    pub fn train_minibatched_checkpointed(
+        &mut self,
+        ids: &Tensor,
+        epochs: usize,
+        batch_size: usize,
+        lr: f64,
+        shuffle_seed: u64,
+        dir: &std::path::Path,
+    ) -> Result<()> {
+        std::fs::create_dir_all(dir).map_err(candle_core::Error::wrap)?;
+        let vars = self.varmap.all_vars();
+        train_minibatched_impl(
+            &self.device,
+            vars,
+            ids,
+            epochs,
+            batch_size,
+            lr,
+            shuffle_seed,
+            Some((&self.varmap, dir)),
+            |xb| self.loss_tensor(xb),
+        )
+    }
+
+    /// Persist the model weights to `dir/model.safetensors`.
+    pub fn save(&self, dir: &std::path::Path) -> Result<()> {
+        std::fs::create_dir_all(dir).map_err(candle_core::Error::wrap)?;
+        self.varmap.save(dir.join("model.safetensors"))
+    }
+
+    /// Load weights previously written by [`Self::save`] (or a checkpoint) into this
+    /// model, which must have the same config/shapes.
+    pub fn load(&mut self, dir: &std::path::Path) -> Result<()> {
+        self.varmap.load(dir.join("model.safetensors"))
     }
 }
 
@@ -506,6 +588,7 @@ fn train_minibatched_impl(
     batch_size: usize,
     lr: f64,
     shuffle_seed: u64,
+    checkpoint: Option<(&VarMap, &std::path::Path)>,
     mut loss_of: impl FnMut(&Tensor) -> Result<Tensor>,
 ) -> Result<()> {
     let n = ids.dims2()?.0;
@@ -549,6 +632,15 @@ fn train_minibatched_impl(
 
             start = end;
             step += 1;
+        }
+        // End-of-epoch checkpoint: a crashed multi-day run loses at most one epoch.
+        if let Some((varmap, dir)) = checkpoint {
+            varmap.save(dir.join("model.safetensors"))?;
+            std::fs::write(
+                dir.join("meta.json"),
+                format!("{{\"epochs_completed\":{}}}\n", epoch + 1),
+            )
+            .map_err(candle_core::Error::wrap)?;
         }
     }
     Ok(())
@@ -666,6 +758,92 @@ mod tests {
                 "bs={bs}: {batched} != {full}"
             );
         }
+    }
+
+    fn small_cfg() -> AutoregConfig {
+        AutoregConfig {
+            seq_len: 16,
+            d: 24,
+            ..AutoregConfig::byte_3zone()
+        }
+    }
+
+    fn synthetic_ids(cfg: &AutoregConfig, dev: &Device) -> Tensor {
+        let n = 12u32;
+        Tensor::from_vec(
+            (0..(n * cfg.seq_len as u32))
+                .map(|i| (i * 17 + 3) % 256)
+                .collect::<Vec<_>>(),
+            (n as usize, cfg.seq_len),
+            dev,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn checkpoint_save_load_round_trips() {
+        // Save → load into a FRESH, differently-seeded model → identical loss. A match
+        // can only come from load (the seeds differ), so this proves weights round-trip.
+        let cfg = small_cfg();
+        let mut a = AutoregLm::new(&cfg).unwrap();
+        let ids = synthetic_ids(&cfg, a.device());
+        a.train_minibatched(&ids, 2, 4, 0.01, 13).unwrap();
+        let loss_a = a.loss_on_batched(&ids, 4).unwrap();
+
+        let dir = std::env::temp_dir().join(format!("nat_autoreg_ckpt_{}", cfg.seed));
+        a.save(&dir).unwrap();
+
+        let mut b = AutoregLm::new(&AutoregConfig {
+            seed: cfg.seed ^ 0xFFFF, // different init: a match must come from load
+            ..cfg.clone()
+        })
+        .unwrap();
+        let pre = b.loss_on_batched(&ids, 4).unwrap();
+        b.load(&dir).unwrap();
+        let post = b.loss_on_batched(&ids, 4).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(
+            (pre - loss_a).abs() > 1e-6,
+            "fresh model should differ before load"
+        );
+        assert!(
+            (post - loss_a).abs() < 1e-6,
+            "loaded model must reproduce the saved loss: {post} vs {loss_a}"
+        );
+    }
+
+    #[test]
+    fn checkpointed_training_writes_loadable_checkpoint() {
+        // train_minibatched_checkpointed writes model.safetensors + meta.json each epoch;
+        // the checkpoint loads into a fresh model and reproduces the trained loss.
+        let cfg = small_cfg();
+        let mut a = AutoregLm::new(&cfg).unwrap();
+        let ids = synthetic_ids(&cfg, a.device());
+        let dir = std::env::temp_dir().join(format!("nat_autoreg_train_ckpt_{}", cfg.seed));
+        a.train_minibatched_checkpointed(&ids, 2, 4, 0.01, 13, &dir)
+            .unwrap();
+        let loss_a = a.loss_on_batched(&ids, 4).unwrap();
+
+        let meta = std::fs::read_to_string(dir.join("meta.json")).unwrap();
+        assert!(
+            meta.contains("\"epochs_completed\":2"),
+            "meta records epochs: {meta}"
+        );
+
+        let mut b = AutoregLm::new(&AutoregConfig {
+            seed: cfg.seed ^ 0xFFFF,
+            ..cfg.clone()
+        })
+        .unwrap();
+        b.load(&dir).unwrap();
+        let post = b.loss_on_batched(&ids, 4).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(
+            (post - loss_a).abs() < 1e-6,
+            "checkpoint must reproduce the trained loss: {post} vs {loss_a}"
+        );
     }
 
     #[test]
