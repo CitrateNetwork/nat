@@ -134,6 +134,20 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
+### 2026-06-25 — corpus-v5 built: 167M tokens (5.4× v4) + BPE-16k — the 16M/32M rungs are unblocked (Claude, manual)
+- **SCALE-S1 WP-S9.** Scaled the Gutenberg PD haul to **1,500 books** (`MAX_BOOKS=1500
+  scripts/fetch-corpus-volume.sh`) + the v3/v4 pillars → `scripts/build-corpus-v5.sh`.
+- **corpus-v5: 392,499 docs / 130,833 shards / 167,177,462 tokens** (manifest metric, **5.4×
+  corpus-v4's 30.99M**), aggregate_quality **0.857**. Quarantined 7,316 (exact_dup 3174,
+  near_dup 4026 via MinHash/LSH, pii 85, too_short 29, low_quality 2) — **0 license**.
+- **BPE-16384 @ 2.53 bytes/token ≈ 383M BPE tokens** of training material (bigger vocab packs
+  more bytes/token than v4's BPE-4096 @ 2.23 — the token-efficiency gain for scale).
+- **Unblocks the 16M and 32M H-01 rungs** (~160–320M tokens at ~10 tok/param); 64M (~640M)
+  wants a corpus-v6 (more books or the Wikipedia connector, WP-S6).
+- **Honest:** corpus-v5 is still gitignored/local-only on the DGX (WP-S8 storage/backup open —
+  the scoping doc calls durable storage a prerequisite before the multi-billion ingest).
+- **Next**: H-01 ladder on corpus-v5 at 16M/32M (WP-S10), now crash-safe (WP-S1 checkpointing).
+
 ### 2026-06-25 — the divergence fix landed: corpus-v4 ladder HOLDS 5/5 at BOTH 4M and 8M (Claude, manual)
 - **Follow-up from 2026-06-24 closed.** Added linear LR warmup (first 5% of steps) + global
   grad-norm clip at 1.0 in a shared `train_minibatched_impl` (both arms identical — strengthens

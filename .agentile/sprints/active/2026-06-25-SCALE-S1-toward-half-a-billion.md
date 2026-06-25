@@ -64,7 +64,7 @@ both. Ordered within each by dependency.
 ### Workstream C — Ladder, evals, and the 500M run
 | WP | Subject | Acceptance | Status |
 |----|---------|-----------|--------|
-| WP-S9 | **corpus-v5 + BPE-16k** | 5–10× the volume haul folded through the pipeline; fresh BPE-16k; manifest + quality recorded | ☐ (after S1/S4) |
+| WP-S9 | **corpus-v5 + BPE-16k** | 5–10× the volume haul folded through the pipeline; fresh BPE-16k; manifest + quality recorded | ✅ **done (2026-06-25)** — 1500 PD Gutenberg books + v3/v4 pillars → **392,499 docs / 167.2M tokens (5.4× v4) / quality 0.857**, 7,316 quarantined (dedup+PII, 0 license). **BPE-16384 @ 2.53 bytes/tok ≈ 383M BPE tokens.** `scripts/build-corpus-v5.sh`. Unblocks 16M→32M rungs; 64M wants corpus-v6. NOT yet durably stored (WP-S8 open). |
 | WP-S10 | **Ladder rungs 16M → 32M → 64M** | param-matched NAT vs dense at each, on corpus-v5, held-out bits/byte, gap reported per rung (honest: narrowing = report it) | ☐ |
 | WP-S11 | **Eval battery beyond bits/byte** | domain-split held-out perplexity + a few small downstream tasks; a capability read that isn't just LM loss | ☐ |
 | WP-S12 | **The 500M run: 128M → 256M → 512M** | each rung param-matched (sampled seeds at the top to bound compute), checkpointed, gap holding; `g3b` exit | ☐ (north star) |
