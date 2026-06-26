@@ -8,7 +8,7 @@
 //! floor (PLANSET/01). (nat-ablation grew an equivalent helper first; this is the
 //! shared home for the L1 training stack.)
 
-use candle_core::{Device, Result, Tensor, Var};
+use candle_core::{DType, Device, Result, Tensor, Var};
 use candle_nn::{linear, Linear, VarBuilder, VarMap};
 
 /// SplitMix64 — a tiny deterministic PRNG.
@@ -43,12 +43,25 @@ pub fn name_seed(seed: u64, name: &str) -> u64 {
     h
 }
 
-/// A deterministic uniform `[-k, k]` tensor of the given shape.
+/// A deterministic uniform `[-k, k]` tensor of the given shape (f32).
 pub fn seeded_uniform(shape: (usize, usize), k: f32, seed: u64, dev: &Device) -> Result<Tensor> {
+    seeded_uniform_dt(shape, k, seed, DType::F32, dev)
+}
+
+/// As [`seeded_uniform`] but cast to `dtype` (e.g. bf16). The PRNG stream is
+/// dtype-independent, so the *values* are identical; only the storage precision
+/// differs. `to_dtype(F32)` is a no-op, so the f32 path is bit-identical.
+pub fn seeded_uniform_dt(
+    shape: (usize, usize),
+    k: f32,
+    seed: u64,
+    dtype: DType,
+    dev: &Device,
+) -> Result<Tensor> {
     let (r, c) = shape;
     let mut rng = SplitMix64::new(seed);
     let v: Vec<f32> = (0..r * c).map(|_| rng.uniform(-k, k)).collect();
-    Tensor::from_vec(v, (r, c), dev)
+    Tensor::from_vec(v, (r, c), dev)?.to_dtype(dtype)
 }
 
 /// A `Linear` whose weights are deterministically seeded. The variables are
@@ -64,12 +77,30 @@ pub fn seeded_linear(
     seed: u64,
     dev: &Device,
 ) -> Result<Linear> {
+    seeded_linear_dt(varmap, vb, prefix, in_dim, out_dim, seed, DType::F32, dev)
+}
+
+/// As [`seeded_linear`] but the weights are stored in `dtype` (e.g. bf16). The init
+/// values come from the same f32 PRNG stream (so init is identical), then cast to
+/// `dtype`. The `VarBuilder` must carry the same `dtype` so `linear()` reads the vars
+/// back consistently. `to_dtype(F32)` is a no-op → the f32 path is bit-identical.
+#[allow(clippy::too_many_arguments)]
+pub fn seeded_linear_dt(
+    varmap: &VarMap,
+    vb: &VarBuilder,
+    prefix: &str,
+    in_dim: usize,
+    out_dim: usize,
+    seed: u64,
+    dtype: DType,
+    dev: &Device,
+) -> Result<Linear> {
     let k = 1.0 / (in_dim as f32).sqrt();
     let mut rng = SplitMix64::new(name_seed(seed, prefix));
     let wv: Vec<f32> = (0..out_dim * in_dim).map(|_| rng.uniform(-k, k)).collect();
     let bv: Vec<f32> = (0..out_dim).map(|_| rng.uniform(-k, k)).collect();
-    let w = Var::from_tensor(&Tensor::from_vec(wv, (out_dim, in_dim), dev)?)?;
-    let b = Var::from_tensor(&Tensor::from_vec(bv, (out_dim,), dev)?)?;
+    let w = Var::from_tensor(&Tensor::from_vec(wv, (out_dim, in_dim), dev)?.to_dtype(dtype)?)?;
+    let b = Var::from_tensor(&Tensor::from_vec(bv, (out_dim,), dev)?.to_dtype(dtype)?)?;
     {
         let mut data = varmap.data().lock().unwrap();
         data.insert(format!("{prefix}.weight"), w);
@@ -82,7 +113,18 @@ pub fn seeded_linear(
 /// Used for per-core scalars (e.g. the SSM decay `log_a`). Returns the tensor
 /// handle (shares id with the var, so the optimizer trains it).
 pub fn seeded_scalar_var(varmap: &VarMap, name: &str, init: f32, dev: &Device) -> Result<Tensor> {
-    let var = Var::from_tensor(&Tensor::from_vec(vec![init], (1,), dev)?)?;
+    seeded_scalar_var_dt(varmap, name, init, DType::F32, dev)
+}
+
+/// As [`seeded_scalar_var`] but stored in `dtype`. `to_dtype(F32)` is a no-op.
+pub fn seeded_scalar_var_dt(
+    varmap: &VarMap,
+    name: &str,
+    init: f32,
+    dtype: DType,
+    dev: &Device,
+) -> Result<Tensor> {
+    let var = Var::from_tensor(&Tensor::from_vec(vec![init], (1,), dev)?.to_dtype(dtype)?)?;
     let t = var.as_tensor().clone();
     varmap.data().lock().unwrap().insert(name.to_string(), var);
     Ok(t)
