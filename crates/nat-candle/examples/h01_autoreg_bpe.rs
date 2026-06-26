@@ -81,7 +81,10 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let target: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(1_000_000);
+    let target: usize = args
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1_000_000);
     // max_windows caps training sequences. Scale it with target params on a larger
     // corpus, or the bigger model starves and overfits (the whole point of corpus-v4).
     let max_windows: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(30_000);
