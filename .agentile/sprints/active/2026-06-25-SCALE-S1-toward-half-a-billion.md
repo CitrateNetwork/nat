@@ -49,8 +49,8 @@ both. Ordered within each by dependency.
 | WP | Subject | Acceptance | Status |
 |----|---------|-----------|--------|
 | WP-S1 | **Checkpoint/resume for `AutoregLm` + `AutoregDenseLm`** | `save(dir)`/`load(dir)` via safetensors; periodic checkpoint inside the train loop; a resumed run continues from the last step; round-trip + resume-equivalence tests | 🟡 **weight-level done (2026-06-25)** — `save`/`load` + `train_minibatched_checkpointed` (per-epoch `model.safetensors`+`meta.json`) on both arms, 2 round-trip tests green (39 total). **Remainder:** wire resume into the run/example path (read `meta.json`, skip done epochs) + serialize AdamW state for *bit-identical* continuation (today a resume restarts the optimizer + LR warmup). |
-| WP-S2 | **bf16 mixed precision + gradient accumulation** | configurable dtype + accum steps; large effective batch fits the GB10 unified pool at d≫500; numerics within tolerance of f32 on a small model | ☐ |
-| WP-S3 | **Throughput profile of the candle-cuda path** | per-step wall-clock vs `d`/batch; identify the bottleneck (attention? matmul? host transfer) and a target tokens/sec at 500M | ☐ |
+| WP-S2 | **bf16 mixed precision + gradient accumulation** | configurable dtype + accum steps; large effective batch fits the GB10 unified pool at d≫500; numerics within tolerance of f32 on a small model | 🟡 **designed (2026-06-25)** — implementation plan + obstacle in the design note below. Impl + numerics/throughput validation **gated on a free GPU** (the 16M/32M run holds the card); not landed blind. |
+| WP-S3 | **Throughput profile of the candle-cuda path** | per-step wall-clock vs `d`/batch; identify the bottleneck (attention? matmul? host transfer) and a target tokens/sec at 500M | 🟡 **harness built (2026-06-25)** — `crates/nat-candle/examples/bench_throughput.rs` (tokens/sec at a target param scale; CPU-smoked). **GPU run pending** (don't compete with the live ladder); pair with `nvidia-smi` for peak memory. |
 
 ### Workstream B — Data pipeline to billions of license-clean tokens
 | WP | Subject | Acceptance | Status |
@@ -104,3 +104,43 @@ attempt.
 Order: **(1)** this plan + the `g3b` gate · **(2)** WP-S1 checkpoint/resume · **(3)** WP-S4
 data-volume scoping · **then** WP-S9 corpus-v5 and onward. A and B parallelize after that;
 C consumes them.
+
+## WP-S2/S3 design note — bf16 mixed precision (2026-06-25)
+
+Investigation findings (so the implementation is a known quantity, not a guess), and **why
+it wasn't landed blind**: the bf16 numerics and the throughput payoff can only be validated
+on the GPU, which is busy running the 16M/32M ladder (~15h). Landing numerically-delicate
+changes to softmax/SSM/optimizer paths without GPU validation is exactly the kind of move
+this lab's honest posture rejects. So WP-S3's **measurement harness** is built first
+(`bench_throughput.rs`) and the implementation below is specified, to be landed *with* GPU
+validation the moment the card frees.
+
+**The obstacle (the non-obvious part).** bf16 is *not* a one-line VarBuilder flip. The seeded
+init (`seed.rs::seeded_linear` / `seeded_scalar_var` / `seeded_uniform`) builds every weight
+as **f32** via `Tensor::from_vec(Vec<f32>)` and inserts it into the `VarMap` directly,
+bypassing the VarBuilder dtype — and `seeded_linear` then builds the `Linear` via `linear(.., vb.pp(..))`
+which reads those vars back. So bf16 weights require **threading a dtype through the seeded
+helpers** (cast the f32 init → dtype before `Var::from_tensor`) AND confirming candle's
+`VarBuilder::get` / `VarMap` behavior on a bf16 dtype (open question to resolve by running).
+
+**The plan (matmuls in bf16 for the win; f32 for the sensitive ops):**
+1. `seed.rs`: dtype-aware init (additive `*_dt` variants; existing f32 call sites unchanged).
+2. `AutoregLm` / `AutoregDenseLm`: add a `dtype` field; `new()` → f32 (unchanged, default),
+   `new_with_dtype(cfg, dtype)` builds weights + VarBuilder in `dtype`.
+3. **f32-protect the sensitive ops** (no-ops when already f32, so the f32 path stays
+   bit-identical and the existing 39 tests still pass):
+   - `CausalAttn`: upcast scores → f32 for `+mask` and softmax, downcast weights → compute dtype.
+   - `CausalSsm`: compute the decay matrix (`log_a.exp().log()`, `tk·rate`.exp()) in f32, cast
+     the result → compute dtype for the matmul (the exp/log is the precision-sensitive part).
+   - per-position merge softmax + `cross_entropy`: cast logits → f32.
+   - Causal masks stay f32 (added in f32 space) — no dtype threading needed there.
+4. Optimizer: start with **pure bf16 storage** (max memory saving; AdamW moments in bf16),
+   guarded by the warmup+grad-clip from WP-S1's fix. If a GPU run shows instability, escalate
+   to **f32 master weights + bf16 compute** (more memory, more stable) — that decision is a
+   GPU-validation output, not a guess.
+5. **Gradient accumulation**: accumulate grads over N micro-batches before `opt.step` (already
+   have the explicit `backward()`/`clip`/`step` split from WP-S1) for a large effective batch.
+
+**Validation plan (when the GPU frees):** CPU tolerance test (bf16 loss ≈ f32 within ε on a
+tiny model) → `bench_throughput` f32-vs-bf16 at 8M/16M/64M (tok/s + nvidia-smi peak memory) →
+a short bf16 training run to confirm stability → only then flip the ladder's upper rungs to bf16.
