@@ -134,6 +134,25 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
+### 2026-06-26 — 16M rung on corpus-v5 HOLDS 3/3; bf16 path built for the throughput wall (Claude, manual)
+- **H-01 16M on corpus-v5 (BPE-16384, candle-cuda, 3 seeds):** NAT 5-zone d=400 (16,012,791)
+  vs param-matched dense (16,013,190). **HOLDS 3/3** — NAT 1.948–1.958 vs dense 2.141–2.147
+  b/byte, **gap ~0.19**; mean cap/param NAT 1.83e-8 > dense 1.67e-8. The bet survives the
+  jump to a 5.4× corpus and a 4× vocab.
+- **Throughput is the wall:** 16M took **~8h/seed** at f32 (3 seeds ≈ 24h). The 32M f32 run
+  would be ~2 days — so the SCALE-S1 WP-S2 **bf16 path was built** (matmuls in bf16; softmax/
+  SSM-decay/cross-entropy in f32; f32 path bit-identical, 40 CPU tests green; bf16 compute is
+  GPU-only in this candle build → cuda-gated test). **GPU-validated:** cuda suite 40/40 incl.
+  bf16 training (stable, tracks f32 within tol); `bench_throughput` @16M shows bf16 **1.75×
+  faster** (10,722 vs 6,110 tok/s, 382 vs 670 ms/step). The 32M rung is re-run in **bf16**.
+- **Finding (vocab × scale):** at BPE-16384 the embedding dominates, so the example's old d-cap
+  (512) capped a "32M" target at ~21.5M params — raised to 4096 so 32M is actually reachable
+  (32M wants d~800). The H-01 comparison was still valid (both arms identical), but the param
+  label was short.
+- **Honest:** 16M at BPE-16384 is still mostly embedding params; the partitioned cores are a
+  minority of the budget (the whole-model claim is the 128M+ rungs). Gap is a clean per-param
+  core signal. **Next:** 32M in bf16; then 64M (wants corpus-v6 / Wikipedia, WP-S6).
+
 ### 2026-06-25 — corpus-v5 built: 167M tokens (5.4× v4) + BPE-16k — the 16M/32M rungs are unblocked (Claude, manual)
 - **SCALE-S1 WP-S9.** Scaled the Gutenberg PD haul to **1,500 books** (`MAX_BOOKS=1500
   scripts/fetch-corpus-volume.sh`) + the v3/v4 pillars → `scripts/build-corpus-v5.sh`.

@@ -104,7 +104,9 @@ fn main() {
     let shards = read_shards(std::path::Path::new(&dir)).unwrap();
 
     // Size the NAT arm to ~target params, then param-match the dense FFN at the same d.
-    let d = bsearch(8, 512, target, |d| nat_params(d, vocab));
+    // The d ceiling must clear what big vocabs need (at BPE-16k the embedding dominates,
+    // so a 32M target wants d~800, well above the old 512 cap).
+    let d = bsearch(8, 4096, target, |d| nat_params(d, vocab));
     let nat_p = nat_params(d, vocab);
     let d_ff = bsearch(1, 8192, nat_p, |f| dense_params(d, f, vocab));
     let dense_p = dense_params(d, d_ff, vocab);
