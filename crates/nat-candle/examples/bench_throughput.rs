@@ -11,7 +11,7 @@
 //! On CPU (no --features cuda) it only smoke-tests the harness — the numbers are not
 //! representative of GPU throughput.
 
-use candle_core::Tensor;
+use candle_core::{DType, Tensor};
 use nat_candle::autoreg::{AutoregConfig, AutoregLm};
 use nat_candle::device::backend_label;
 use nat_types::ZoneId;
@@ -59,9 +59,15 @@ fn main() {
     let steps: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(20);
     let vocab: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(4096);
 
+    let dtype = match std::env::var("NAT_DTYPE").as_deref() {
+        Ok("bf16") => DType::BF16,
+        Ok("f16") => DType::F16,
+        _ => DType::F32,
+    };
+
     let d = size_d(8, 2048, target, vocab, seq);
     let cfg = cfg_for(d, vocab, seq);
-    let mut model = AutoregLm::new(&cfg).unwrap();
+    let mut model = AutoregLm::new_with_dtype(&cfg, dtype).unwrap();
     let params = model.param_count();
 
     // Deterministic synthetic windows (no rng dep): `steps` batches of `batch` rows.
@@ -84,7 +90,10 @@ fn main() {
     let dt = t.elapsed().as_secs_f64();
 
     let toks = (n * seq) as f64;
-    println!("bench_throughput — backend {}", backend_label());
+    println!(
+        "bench_throughput — backend {} dtype {dtype:?}",
+        backend_label()
+    );
     println!("  d={d} params={params} vocab={vocab} | {steps} steps × batch {batch} × seq {seq}");
     println!(
         "  {toks:.0} tokens in {dt:.3}s = {:.0} tok/s ({:.1} ms/step)",
