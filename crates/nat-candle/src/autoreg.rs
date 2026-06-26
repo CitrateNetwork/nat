@@ -13,7 +13,9 @@
 //! lower-triangular, hence causal by construction). The merge is the same
 //! soft (activation×score) combine as WP-2, applied independently at each position.
 
-use crate::seed::{name_seed, seeded_linear, seeded_scalar_var, seeded_uniform, SplitMix64};
+use crate::seed::{
+    name_seed, seeded_linear_dt, seeded_scalar_var_dt, seeded_uniform_dt, SplitMix64,
+};
 use candle_core::{backprop::GradStore, DType, Device, Result, Tensor, Var, D};
 use candle_nn::optim::{AdamW, ParamsAdamW};
 use candle_nn::{loss, Linear, Module, Optimizer, VarBuilder, VarMap};
@@ -42,8 +44,10 @@ impl CausalCore for CausalAttn {
         let v = self.wv.forward(x)?;
         let scale = 1.0 / (self.d as f64).sqrt();
         let scores = q.matmul(&k.transpose(1, 2)?)?.affine(scale, 0.0)?; // (b, seq, seq)
-        let scores = scores.broadcast_add(&self.mask)?; // causal mask
-        let attn = candle_nn::ops::softmax(&scores, D::Minus1)?;
+                                                                         // Mask-add + softmax in f32 (the mask is f32; softmax is precision-sensitive),
+                                                                         // then cast the weights back to the compute dtype. No-op when already f32.
+        let scores = scores.to_dtype(DType::F32)?.broadcast_add(&self.mask)?;
+        let attn = candle_nn::ops::softmax(&scores, D::Minus1)?.to_dtype(x.dtype())?;
         let ctx = attn.matmul(&v)?; // (b, seq, d)
         self.wo.forward(&ctx)
     }
@@ -64,14 +68,20 @@ impl CausalCore for CausalSsm {
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
         let (b, seq, _d) = x.dims3()?;
         let proj = self.wb.forward(x)?; // (b, seq, d)
+                                        // Build the decay matrix in f32 (exp/log are precision-sensitive; tk/mask are
+                                        // f32), then cast to the compute dtype for the matmul. No-op when already f32.
         let decay_rate = self
             .log_a
+            .to_dtype(DType::F32)?
             .exp()?
             .affine(1.0, 1.0)?
             .log()?
             .affine(-1.0, 0.0)?;
         let decay = self.tk.broadcast_mul(&decay_rate)?.exp()?.mul(&self.mask)?; // (seq, seq)
-        let decay = decay.unsqueeze(0)?.broadcast_as((b, seq, seq))?;
+        let decay = decay
+            .to_dtype(x.dtype())?
+            .unsqueeze(0)?
+            .broadcast_as((b, seq, seq))?;
         let y = decay.matmul(&proj)?; // (b, seq, d)
         self.wo.forward(&self.wc.forward(&y)?)
     }
@@ -115,15 +125,30 @@ pub struct AutoregLm {
 }
 
 impl AutoregLm {
+    /// Build with f32 weights (the default).
     pub fn new(cfg: &AutoregConfig) -> Result<Self> {
+        Self::new_with_dtype(cfg, DType::F32)
+    }
+
+    /// Build with weights + activations in `dtype` (e.g. `DType::BF16` for the
+    /// mixed-precision throughput path, SCALE-S1 WP-S2). The numerically-sensitive ops
+    /// (attention/merge softmax, SSM decay exp/log, cross-entropy) run in f32 regardless,
+    /// so `dtype == F32` is bit-identical to the original model.
+    pub fn new_with_dtype(cfg: &AutoregConfig, dtype: DType) -> Result<Self> {
         let dev = crate::device::device();
         let varmap = VarMap::new();
-        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &dev);
+        let vb = VarBuilder::from_varmap(&varmap, dtype, &dev);
         let d = cfg.d;
         let seq = cfg.seq_len;
 
         // Embedding table.
-        let table = seeded_uniform((cfg.vocab, d), 0.1, name_seed(cfg.seed, "embedding"), &dev)?;
+        let table = seeded_uniform_dt(
+            (cfg.vocab, d),
+            0.1,
+            name_seed(cfg.seed, "embedding"),
+            dtype,
+            &dev,
+        )?;
         let var = candle_core::Var::from_tensor(&table)?;
         let emb = var.as_tensor().clone();
         varmap
@@ -132,7 +157,7 @@ impl AutoregLm {
             .unwrap()
             .insert("embedding.weight".to_string(), var);
 
-        // Constant causal masks (built once, shared by the cores).
+        // Constant causal masks (kept f32; added/used in f32-space ops).
         let attn_mask = causal_attn_mask(seq, &dev)?;
         let (tk, tri) = ssm_matrices(seq, &dev)?;
 
@@ -140,37 +165,33 @@ impl AutoregLm {
         let mut score_heads = Vec::with_capacity(cfg.zones.len());
         for &z in &cfg.zones {
             let p = format!("zone_{}", z.as_str());
+            let lin = |name: &str, i: usize, o: usize| {
+                seeded_linear_dt(&varmap, &vb, name, i, o, cfg.seed, dtype, &dev)
+            };
             let core: Box<dyn CausalCore> = match z.default_core() {
                 CoreType::Attention => Box::new(CausalAttn {
-                    wq: seeded_linear(&varmap, &vb, &format!("{p}.wq"), d, d, cfg.seed, &dev)?,
-                    wk: seeded_linear(&varmap, &vb, &format!("{p}.wk"), d, d, cfg.seed, &dev)?,
-                    wv: seeded_linear(&varmap, &vb, &format!("{p}.wv"), d, d, cfg.seed, &dev)?,
-                    wo: seeded_linear(&varmap, &vb, &format!("{p}.wo"), d, d, cfg.seed, &dev)?,
+                    wq: lin(&format!("{p}.wq"), d, d)?,
+                    wk: lin(&format!("{p}.wk"), d, d)?,
+                    wv: lin(&format!("{p}.wv"), d, d)?,
+                    wo: lin(&format!("{p}.wo"), d, d)?,
                     mask: attn_mask.clone(),
                     d,
                 }),
                 CoreType::Ssm => Box::new(CausalSsm {
-                    wb: seeded_linear(&varmap, &vb, &format!("{p}.wb"), d, d, cfg.seed, &dev)?,
-                    wc: seeded_linear(&varmap, &vb, &format!("{p}.wc"), d, d, cfg.seed, &dev)?,
-                    wo: seeded_linear(&varmap, &vb, &format!("{p}.wo"), d, d, cfg.seed, &dev)?,
-                    log_a: seeded_scalar_var(&varmap, &format!("{p}.log_a"), 0.0, &dev)?,
+                    wb: lin(&format!("{p}.wb"), d, d)?,
+                    wc: lin(&format!("{p}.wc"), d, d)?,
+                    wo: lin(&format!("{p}.wo"), d, d)?,
+                    log_a: seeded_scalar_var_dt(&varmap, &format!("{p}.log_a"), 0.0, dtype, &dev)?,
                     tk: tk.clone(),
                     mask: tri.clone(),
                 }),
                 CoreType::None => candle_core::bail!("zone {z:?} has no learned core"),
             };
             cores.push(core);
-            score_heads.push(seeded_linear(
-                &varmap,
-                &vb,
-                &format!("score_{}", z.as_str()),
-                d,
-                1,
-                cfg.seed,
-                &dev,
-            )?);
+            score_heads.push(lin(&format!("score_{}", z.as_str()), d, 1)?);
         }
-        let readout = seeded_linear(&varmap, &vb, "readout", d, cfg.vocab, cfg.seed, &dev)?;
+        let readout =
+            seeded_linear_dt(&varmap, &vb, "readout", d, cfg.vocab, cfg.seed, dtype, &dev)?;
 
         Ok(AutoregLm {
             varmap,
@@ -249,7 +270,14 @@ impl AutoregLm {
         // Per-position soft merge over zones.
         let score_refs: Vec<&Tensor> = scores.iter().collect();
         let scores = Tensor::cat(&score_refs, 2)?; // (b, seq, nz)
-        let weights = candle_nn::ops::softmax(&scores.affine(1.0 / self.cfg.tau, 0.0)?, D::Minus1)?;
+                                                   // Merge softmax in f32, then back to the compute dtype. No-op when already f32.
+        let weights = candle_nn::ops::softmax(
+            &scores
+                .affine(1.0 / self.cfg.tau, 0.0)?
+                .to_dtype(DType::F32)?,
+            D::Minus1,
+        )?
+        .to_dtype(scores.dtype())?;
         let zo_refs: Vec<&Tensor> = zone_outs.iter().collect();
         let stacked = Tensor::stack(&zo_refs, 2)?; // (b, seq, nz, d)
         let w = weights.reshape((b, seq, nz, 1))?;
@@ -298,7 +326,8 @@ impl AutoregLm {
             .narrow(1, 1, seq - 1)?
             .contiguous()?
             .reshape((b * (seq - 1),))?;
-        loss::cross_entropy(&pred, &tgt)
+        // Cross-entropy (log-softmax + nll) in f32 for stability. No-op when f32.
+        loss::cross_entropy(&pred.to_dtype(DType::F32)?, &tgt)
     }
 
     /// Mini-batch SGD over shuffled sequences. Targets are the inputs shifted by one
@@ -396,12 +425,26 @@ pub struct AutoregDenseLm {
 }
 
 impl AutoregDenseLm {
+    /// Build with f32 weights (the default).
     pub fn new(vocab: usize, seq_len: usize, d: usize, d_ff: usize, seed: u64) -> Result<Self> {
+        Self::new_with_dtype(vocab, seq_len, d, d_ff, seed, DType::F32)
+    }
+
+    /// Build with weights + activations in `dtype` (the H-01 ablation's dense arm must
+    /// match the NAT arm's dtype — ADR-0005). f32 is bit-identical to the original.
+    pub fn new_with_dtype(
+        vocab: usize,
+        seq_len: usize,
+        d: usize,
+        d_ff: usize,
+        seed: u64,
+        dtype: DType,
+    ) -> Result<Self> {
         let dev = crate::device::device();
         let varmap = VarMap::new();
-        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &dev);
+        let vb = VarBuilder::from_varmap(&varmap, dtype, &dev);
 
-        let table = seeded_uniform((vocab, d), 0.1, name_seed(seed, "embedding"), &dev)?;
+        let table = seeded_uniform_dt((vocab, d), 0.1, name_seed(seed, "embedding"), dtype, &dev)?;
         let var = candle_core::Var::from_tensor(&table)?;
         let emb = var.as_tensor().clone();
         varmap
@@ -410,13 +453,16 @@ impl AutoregDenseLm {
             .unwrap()
             .insert("embedding.weight".to_string(), var);
 
-        let wq = seeded_linear(&varmap, &vb, "wq", d, d, seed, &dev)?;
-        let wk = seeded_linear(&varmap, &vb, "wk", d, d, seed, &dev)?;
-        let wv = seeded_linear(&varmap, &vb, "wv", d, d, seed, &dev)?;
-        let wo = seeded_linear(&varmap, &vb, "wo", d, d, seed, &dev)?;
-        let w1 = seeded_linear(&varmap, &vb, "w1", d, d_ff, seed, &dev)?;
-        let w2 = seeded_linear(&varmap, &vb, "w2", d_ff, d, seed, &dev)?;
-        let readout = seeded_linear(&varmap, &vb, "readout", d, vocab, seed, &dev)?;
+        let lin = |name: &str, i: usize, o: usize| {
+            seeded_linear_dt(&varmap, &vb, name, i, o, seed, dtype, &dev)
+        };
+        let wq = lin("wq", d, d)?;
+        let wk = lin("wk", d, d)?;
+        let wv = lin("wv", d, d)?;
+        let wo = lin("wo", d, d)?;
+        let w1 = lin("w1", d, d_ff)?;
+        let w2 = lin("w2", d_ff, d)?;
+        let readout = lin("readout", d, vocab)?;
         let mask = causal_attn_mask(seq_len, &dev)?;
 
         Ok(AutoregDenseLm {
@@ -461,8 +507,9 @@ impl AutoregDenseLm {
         let v = self.wv.forward(&emb)?;
         let scale = 1.0 / (self.d as f64).sqrt();
         let scores = q.matmul(&k.transpose(1, 2)?)?.affine(scale, 0.0)?;
-        let scores = scores.broadcast_add(&self.mask)?; // causal
-        let attn = candle_nn::ops::softmax(&scores, D::Minus1)?;
+        // Mask-add + softmax in f32, then back to the compute dtype. No-op when f32.
+        let scores = scores.to_dtype(DType::F32)?.broadcast_add(&self.mask)?;
+        let attn = candle_nn::ops::softmax(&scores, D::Minus1)?.to_dtype(emb.dtype())?;
         let ctx = attn.matmul(&v)?;
         let h = emb.add(&self.wo.forward(&ctx)?)?; // (b, seq, d)
                                                    // FFN block, residual.
@@ -501,7 +548,8 @@ impl AutoregDenseLm {
             .narrow(1, 1, seq - 1)?
             .contiguous()?
             .reshape((b * (seq - 1),))?;
-        loss::cross_entropy(&pred, &tgt)
+        // Cross-entropy (log-softmax + nll) in f32 for stability. No-op when f32.
+        loss::cross_entropy(&pred.to_dtype(DType::F32)?, &tgt)
     }
 
     /// Same mini-batch protocol as `AutoregLm::train_minibatched` (ADR-0005: both
@@ -654,7 +702,12 @@ fn clip_grad_norm(grads: &mut GradStore, vars: &[Var], max_norm: f64) -> Result<
     let mut sq = 0f64;
     for v in vars {
         if let Some(g) = grads.get(v.as_tensor()) {
-            sq += g.sqr()?.sum_all()?.to_scalar::<f32>()? as f64;
+            // Accumulate the norm in f32 even when the grad is bf16/f16.
+            sq += g
+                .sqr()?
+                .sum_all()?
+                .to_dtype(DType::F32)?
+                .to_scalar::<f32>()? as f64;
         }
     }
     let norm = sq.sqrt();
@@ -843,6 +896,58 @@ mod tests {
         assert!(
             (post - loss_a).abs() < 1e-6,
             "checkpoint must reproduce the trained loss: {post} vs {loss_a}"
+        );
+    }
+
+    fn five_zone_small() -> AutoregConfig {
+        AutoregConfig {
+            zones: ZoneId::LEARNED.to_vec(),
+            seq_len: 16,
+            d: 24,
+            ..AutoregConfig::byte_3zone()
+        }
+    }
+
+    #[test]
+    fn bf16_model_constructs_and_matches_param_count() {
+        // The bf16 init plumbing (dtype-aware seeded weights) must build a 5-zone model
+        // — SM/CB SSM + HP/PF/CX attention — with the SAME parameter count as f32 (same
+        // shapes, different storage precision). bf16 *compute* (matmul) is GPU-only in
+        // this candle build, so the forward/train comparison is the cuda-gated test below.
+        let cfg = five_zone_small();
+        let f = AutoregLm::new_with_dtype(&cfg, DType::F32).unwrap();
+        let b = AutoregLm::new_with_dtype(&cfg, DType::BF16).unwrap();
+        assert!(b.param_count() > 0);
+        assert_eq!(f.param_count(), b.param_count());
+    }
+
+    // candle's CPU backend has no bf16 matmul ("unsupported dtype BF16 for op matmul"),
+    // so the bf16 forward/train path only runs on CUDA. This validates that the
+    // f32-protected softmax/SSM-decay/cross-entropy keep bf16 training stable and in the
+    // f32 ballpark. Runs under `scripts/dgx-gpu.sh test`.
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn bf16_trains_and_tracks_f32() {
+        let cfg = five_zone_small();
+        let ids = synthetic_ids(&cfg, AutoregLm::new(&cfg).unwrap().device());
+
+        let mut f = AutoregLm::new_with_dtype(&cfg, DType::F32).unwrap();
+        f.train_minibatched(&ids, 2, 4, 0.01, 5).unwrap();
+        let lf = f.loss_on_batched(&ids, 4).unwrap();
+
+        let mut b = AutoregLm::new_with_dtype(&cfg, DType::BF16).unwrap();
+        b.train_minibatched(&ids, 2, 4, 0.01, 5).unwrap();
+        let lb = b.loss_on_batched(&ids, 4).unwrap();
+
+        let uniform = (cfg.vocab as f32).ln();
+        assert!(lb.is_finite() && lb > 0.0, "bf16 loss not finite: {lb}");
+        assert!(
+            lb < uniform * 1.1,
+            "bf16 loss {lb} not ~below uniform {uniform}"
+        );
+        assert!(
+            (lb - lf).abs() < 0.5,
+            "bf16 loss {lb} should track f32 {lf} within 0.5"
         );
     }
 

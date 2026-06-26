@@ -18,6 +18,7 @@
 //!   scripts/dgx-gpu.sh run -p nat-candle --features cuda --release \
 //!     --example h01_autoreg_bpe -- <corpus-dir> <bpe.json> [target_params]
 
+use candle_core::DType;
 use nat_candle::autoreg::{AutoregConfig, AutoregDenseLm, AutoregLm};
 use nat_candle::corpus::sequence_windows_bpe;
 use nat_data::bpe::Bpe;
@@ -90,6 +91,13 @@ fn main() {
     let max_windows: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(30_000);
     let n_seeds: u64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(5);
     let seeds: Vec<u64> = (1..=n_seeds).collect();
+    // Both arms share the same dtype (ADR-0005). NAT_DTYPE=bf16 enables the
+    // mixed-precision throughput path (SCALE-S1 WP-S2); default f32.
+    let dtype = match std::env::var("NAT_DTYPE").as_deref() {
+        Ok("bf16") => DType::BF16,
+        Ok("f16") => DType::F16,
+        _ => DType::F32,
+    };
 
     let bpe = Bpe::load(std::path::Path::new(&bpe_path)).unwrap();
     let vocab = bpe.vocab_size();
@@ -117,7 +125,7 @@ fn main() {
         nat_candle::device::backend_label()
     );
     println!(
-        "  NAT 5-zone d={d} params={nat_p}  vs  dense d={d} d_ff={d_ff} params={dense_p}  (target ~{target})"
+        "  NAT 5-zone d={d} params={nat_p}  vs  dense d={d} d_ff={d_ff} params={dense_p}  (target ~{target}, dtype {dtype:?})"
     );
 
     // Build BPE windows once; same 80/20 split feeds both arms every seed.
@@ -148,12 +156,13 @@ fn main() {
     let mut holds = 0usize;
 
     for &seed in &seeds {
-        let mut nat = AutoregLm::new(&nat_cfg(d, vocab, seed)).unwrap();
+        let mut nat = AutoregLm::new_with_dtype(&nat_cfg(d, vocab, seed), dtype).unwrap();
         nat.train_minibatched(&xtr, EPOCHS, BATCH, LR, seed)
             .unwrap();
         let nat_loss = nat.loss_on_batched(&xva, BATCH).unwrap();
 
-        let mut dense = AutoregDenseLm::new(vocab, SEQ_LEN, d, d_ff, seed).unwrap();
+        let mut dense =
+            AutoregDenseLm::new_with_dtype(vocab, SEQ_LEN, d, d_ff, seed, dtype).unwrap();
         dense
             .train_minibatched(&xtr, EPOCHS, BATCH, LR, seed)
             .unwrap();
