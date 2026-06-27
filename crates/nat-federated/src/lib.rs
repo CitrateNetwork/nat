@@ -31,6 +31,8 @@ use nat_train::StepContribution;
 use nat_types::Q16;
 use sha2::{Digest, Sha256};
 
+pub mod seam;
+
 /// Domain-separation tag mixed into every signed message, so a NAT federated
 /// signature can never be replayed as a signature for any other protocol.
 const DOMAIN: &[u8] = b"nat-fed-v1";
