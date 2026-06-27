@@ -14,12 +14,17 @@ gates:
         met: true
         evidence: PLANSET/
       - id: g1-formal
-        desc: Three TLA+ modules complete and TLC-green
+        desc: TLA+ modules complete and TLC-green
         met: true
         note: >-
-          TLC-green 2026-06-22 (scripts/run-tlc.sh): MergeDeterminism (31 states),
-          AsyncGather (40), McpHarness (10) — no errors. Fixed MergeDeterminism.cfg
-          to override Score via `<- ScoreFcn` (TLC cfg can't hold a function literal).
+          TLC-green 2026-06-27 (scripts/run-tlc.sh): MergeDeterminism (31 states),
+          AsyncGather (40), McpHarness (10), GradientAggregation (625),
+          GradientAggregationAdversarial (905), UnifiedSettlement (8) — no errors.
+          The last three added by the Federated Meta-Learning program: WS-1 verifiable
+          gradient aggregation (determinism + ByzantineCannotFlipUnderHonestDominance +
+          WindowCloses liveness) and the WS-0 UNIFY-S1 settlement-conservation proof.
+          Function constants overridden via `<- ScoreFcn`/`WeightFcn` (TLC cfg can't
+          hold a function literal).
         evidence: formal/ ; scripts/run-tlc.sh
       - id: g1-features
         desc: Gherkin acceptance set written, organized by gate

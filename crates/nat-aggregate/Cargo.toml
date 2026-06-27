@@ -1,0 +1,14 @@
+[package]
+name = "nat-aggregate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Verifiable gradient aggregation (WS-1): DiLoCo outer-step pseudo-gradients, bucketed coordinate-wise trimmed mean in Q16, bit-reproducible. The Rust counterpart of nat/formal/GradientAggregation*.tla."
+
+[dependencies]
+nat-types.workspace = true
+sha2.workspace = true
