@@ -21,7 +21,11 @@ computes identically. We use the conditional deliberately: the determinism *prop
 this sound (same gathered set → same bits) is demonstrated locally and TLC-checked
 (`MergeDeterminism.tla`, §4.5), and the gather is implemented today as a single-process deterministic
 *simulation* of the deadline; the actual multi-node, cross-network signed gather is the Gate-4
-milestone (§7.5), not a result in hand.
+milestone (§7.5), not a result in hand. The swapped zone is also the **routing and adapter target**:
+RM-FL's routing meta-model (precompile `0x0111`) emits a destination redefined to address a NAT zone,
+and a LoRA registered through `LoRAFactory.verifyAdapterAt` (KZG via `0x0108`) targets that zone's
+weights — so a federation specializes one zone without retraining the model (the unification's
+binding #1; `nat-federated::seam::RoutingTarget`).
 
 ## 7.2 Paraconsistent aggregation: disagreement as data
 
@@ -41,10 +45,16 @@ which, for NAT on Citrate, *consensus and learning are the same process*: the sa
 finalizes blocks finalizes the Belnap-aggregated zone weights, and the same accountability that
 slashes a Byzantine block-signer slashes a Byzantine weight-signer. The Belnap aggregation runs over
 Q16 embeddings — the same fixed-point substrate as the merge and the verifiable-inference precompiles
-— so it is bit-deterministic and on-chain-checkable. *Status:* the aggregation logic and its on-chain
-commitment are specified in Paper II and supported by deployed learning-cycle contracts; NAT supplies
-the model whose zone outputs are the contributions, and the end-to-end federated training cycle (Gate
-4) is future work, not a demonstrated result.
+— so it is bit-deterministic and on-chain-checkable. The substrate is the **Belnap aggregation
+precompile `0x0110`** (deterministic Q16, saturating) — *not* the f32 `core/learning::belnap`
+reference implementation, which is research-grade and not bit-reproducible across heterogeneous
+validators; the unification (UNIFY-S1) points `0x0110` at NAT zone-weight deltas
+(`nat-federated::seam::ZoneWeightDelta`, binding #3), and commits/aggregates via the existing
+`0x0107/08/09` Poseidon/KZG/Merkle precompiles. *Status:* the aggregation logic and its on-chain
+commitment are specified in Paper II and implemented in the `0x0110` precompile and the
+`LearningOrchestrator` learning-cycle contracts; NAT supplies the model whose zone outputs are the
+contributions, and the end-to-end multi-node federated training cycle (Gate 4) is future work, not a
+demonstrated result.
 
 ## 7.3 The incentive seam
 
@@ -54,7 +64,11 @@ Per training step (or gathered federated round) NAT produces a signed contributi
 a data-quality score from the pipeline's quality stage, a token count, and the provenance-trace hash —
 and a deterministic **reward weight = compute × data-quality**, computed on the Q16.16 path so two
 nodes and an on-chain verifier agree on it bit for bit. `citrate-compute-pool` converts that weight to
-payout under its tokenomics, and `ContributionAccounting` (Paper VII) records it. A node that
+payout under its tokenomics, and `ContributionAccounting` (Paper VII) records it. The unification
+routes settlement through the co-op `FederatedSettlement` seam into the `PatronageLedger`, carrying
+the `data_quality` term **separately** (not pre-collapsed into the reward weight) so the patronage
+dividend can apply it as the honesty factor (`nat-federated::seam::SettlementRow`, binding #4;
+conservation TLC-checked in `UnifiedSettlement.tla`). A node that
 contributes compute on garbage data earns weight zero; the data-quality score is the economic signal,
 which is why the data pipeline's quality stage (§5.3) is load-bearing rather than hygiene. The node
 operator's path is deliberately narrow — pull verified, manifested, pre-tokenized shards; train; submit
