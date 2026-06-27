@@ -672,6 +672,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "nat-aggregate"
+version = "0.0.1"
+dependencies = [
+ "nat-types",
+ "sha2",
+]
+
+[[package]]
 name = "nat-candle"
 version = "0.0.1"
 dependencies = [

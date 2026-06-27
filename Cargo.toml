@@ -30,6 +30,7 @@ members = [
     "crates/nat-train",
     "crates/nat-eval",
     "crates/nat-federated",
+    "crates/nat-aggregate",
 ]
 
 [workspace.package]
