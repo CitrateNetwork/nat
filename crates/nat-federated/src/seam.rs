@@ -28,7 +28,7 @@
 //! 6. [`LearningCoordinator`] — one coordinator; NAT's gather is the OBSERVE step
 //!    inside RM-FL's stateful cycle.
 
-use crate::{AcceptedContribution, FederationError, GatherResult, SignedContribution, Verifier};
+use crate::{FederationError, GatherResult, SignedContribution, Verifier};
 use nat_types::{Q16, ZoneId};
 use sha2::{Digest, Sha256};
 
@@ -187,43 +187,96 @@ pub fn check_aggregable(deltas: &[ZoneWeightDelta]) -> Result<(ZoneId, usize), S
 // Binding #4 — one ledger; the data_quality term flows to FederatedSettlement.
 // ---------------------------------------------------------------------------
 
+/// Basis-point scale used by the co-op `PatronageLedger` (10000 bps = 1.0). The
+/// on-chain weights `wCompute`/`wData` and `dataQualityBps` are all on this grid.
+pub const BPS_SCALE: u32 = 10_000;
+
 /// A single unified settlement record (binding #4). Where the legacy
 /// [`crate::Settlement`] trait settles only `(node_id, reward_weight)`, this carries
-/// the **`data_quality` term explicitly** so the co-op ledger can compute
-/// `reward = type-weight × usage × data_quality × compute` — `data_quality` is the
-/// honesty factor the whole economic-security story turns on, so it must not be
-/// pre-collapsed into the product. Optionally tagged with the zone the work
-/// targeted, and bound to the provenance `trace_hash`.
+/// the **two factors explicitly** — `compute_metered` and `data_quality` — so the
+/// co-op ledger can compute `units = (compute·wCompute)·(quality·wData)` itself.
+/// `data_quality` is the honesty factor the whole economic-security story turns on,
+/// so it must not be pre-collapsed into the product. Optionally tagged with the zone
+/// the work targeted, and bound to the provenance `trace_hash`. The field shape
+/// mirrors the on-chain `PatronageLedger.recordContribution(roundId, member,
+/// computeMetered, dataQualityBps)` so the Gate-4 adapter is a 1:1 mapping.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettlementRow {
     pub node_id: String,
-    pub reward_weight: Q16,
+    pub compute_metered: Q16,
     pub data_quality: Q16,
     pub zone: Option<ZoneId>,
     pub trace_hash: String,
 }
 
+/// The exact argument shape of the on-chain `PatronageLedger.recordContribution`:
+/// `computeMetered` as an integer unit count and `dataQualityBps` as basis points.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LedgerRecord {
+    pub compute_metered: u128,
+    pub data_quality_bps: u16,
+}
+
 impl SettlementRow {
-    /// Build a settlement row from an [`AcceptedContribution`], injecting the
-    /// `data_quality` term (which the gather collapses into `reward_weight`) so it
-    /// flows separately to the ledger. The orchestrator holds the original
-    /// [`crate::SignedContribution`], so it can supply `data_quality` and the
-    /// (optional) target zone.
-    pub fn from_accepted(accepted: &AcceptedContribution, data_quality: Q16, zone: Option<ZoneId>) -> Self {
+    /// Build a settlement row from a verified [`crate::SignedContribution`] — the
+    /// orchestrator holds it, so both factors, the node id and the trace hash come
+    /// straight from the signed payload (no information is dropped through the gather).
+    pub fn from_signed(c: &SignedContribution, zone: Option<ZoneId>) -> Self {
         SettlementRow {
-            node_id: accepted.node_id.clone(),
-            reward_weight: accepted.reward_weight,
-            data_quality,
+            node_id: c.node_id.clone(),
+            compute_metered: c.contribution.compute_metered,
+            data_quality: c.contribution.data_quality,
             zone,
-            trace_hash: accepted.trace_hash.clone(),
+            trace_hash: c.trace_hash.clone(),
         }
+    }
+
+    /// The collapsed reward weight `compute × data_quality` — identical to
+    /// [`nat_train::StepContribution::reward_weight`], so the seam and the gather
+    /// agree on the total.
+    pub fn reward_weight(&self) -> Q16 {
+        self.compute_metered.mul(self.data_quality)
+    }
+
+    /// `data_quality` (Q16 in [0,1]) as the on-chain `dataQualityBps` (u16 in
+    /// [0,10000]). Round-to-nearest so a grid value like 0.9 maps to exactly 9000
+    /// (floor would give 8999 — a 1-bps drift that would desync the Rust seam from
+    /// the Solidity ledger). Clamped fail-safe: a score outside [0,1] cannot inflate
+    /// units.
+    pub fn data_quality_bps(&self) -> u16 {
+        let one = Q16::ONE.raw() as i128;
+        let raw = self.data_quality.raw().clamp(0, Q16::ONE.raw()) as i128;
+        // bps = round(raw * 10000 / 2^16) = (raw * 10000 + 2^15) / 2^16.
+        ((raw * BPS_SCALE as i128 + one / 2) / one) as u16
+    }
+
+    /// `compute_metered` (Q16) as the on-chain integer `computeMetered` unit count
+    /// (its non-negative integer part).
+    pub fn compute_units(&self) -> u128 {
+        (self.compute_metered.raw().max(0) >> 16) as u128
+    }
+
+    /// The on-chain `recordContribution` call shape for this row.
+    pub fn to_ledger_record(&self) -> LedgerRecord {
+        LedgerRecord { compute_metered: self.compute_units(), data_quality_bps: self.data_quality_bps() }
+    }
+
+    /// A **bit-exact Rust replica of `PatronageLedger.recordContribution`'s** unit
+    /// math: `p = (compute·wCompute/1e4)·(qualityBps·wData/1e4)/1e4`. Lets the seam
+    /// prove it agrees with the Solidity ledger on the minted patronage units before
+    /// the live chain call exists (the Gate-4 adapter only relays; the math is here).
+    pub fn patronage_units(&self, w_compute_bps: u32, w_data_bps: u32) -> u128 {
+        let weighted_compute = self.compute_units() * w_compute_bps as u128 / BPS_SCALE as u128;
+        let weighted_quality = self.data_quality_bps() as u128 * w_data_bps as u128 / BPS_SCALE as u128;
+        weighted_compute * weighted_quality / BPS_SCALE as u128
     }
 }
 
-/// The co-op `FederatedSettlement` adapter (over `citrate-coop`'s WP-8 seam +
-/// `ContributionAccounting` / `PatronageLedger`) implements this. It replaces the
-/// legacy `(node_id, reward_weight)` [`crate::Settlement`] with the richer
-/// [`SettlementRow`] so `data_quality` reaches the patronage ledger.
+/// The co-op `FederatedSettlement` adapter (over `citrate-coop`'s WP-8 seam:
+/// `PatronageLedger.commitRound` + `recordContribution`, plus `ContributionAccounting`)
+/// implements this. It replaces the legacy `(node_id, reward_weight)`
+/// [`crate::Settlement`] with the richer [`SettlementRow`] so both factors —
+/// `compute_metered` and `data_quality` — reach the patronage ledger.
 pub trait UnifiedSettlement {
     fn settle_row(&self, row: &SettlementRow) -> Result<(), FederationError>;
 }
@@ -360,25 +413,49 @@ mod tests {
     // -- Binding #4: data_quality flows separately, not pre-collapsed --------
 
     #[test]
-    fn settlement_row_injects_data_quality_term() {
-        let v = ToyRosterVerifier::new().with_node("a", b"key-a".to_vec());
+    fn settlement_row_carries_both_factors_not_collapsed() {
         let c = SignedContribution::create(
             &ToyKeyedSigner::new("a", b"key-a".to_vec()),
             contrib(4.0, 0.5, "pa"),
             "ma",
             "ta",
         );
-        let r = gather_and_aggregate(std::slice::from_ref(&c), &v);
-        let accepted = &r.accepted[0];
-        // reward_weight is the collapsed product (4.0 * 0.5 = 2.0)…
-        assert_eq!(accepted.reward_weight, Q16::from_f32(2.0));
-        // …and the seam carries data_quality (0.5) SEPARATELY to the ledger.
-        let row = SettlementRow::from_accepted(accepted, c.contribution.data_quality, Some(ZoneId::PF));
-        assert_eq!(row.reward_weight, Q16::from_f32(2.0));
+        let row = SettlementRow::from_signed(&c, Some(ZoneId::PF));
+        // The two factors flow SEPARATELY (compute=4.0, quality=0.5)…
+        assert_eq!(row.compute_metered, Q16::from_f32(4.0));
         assert_eq!(row.data_quality, Q16::from_f32(0.5));
+        // …and the collapsed product matches the gather's reward weight (2.0).
+        assert_eq!(row.reward_weight(), Q16::from_f32(2.0));
         assert_eq!(row.zone, Some(ZoneId::PF));
         assert_eq!(row.trace_hash, "ta");
         assert_eq!(row.node_id, "a");
+        // The on-chain call shape: compute=4 units, quality=5000 bps.
+        let rec = row.to_ledger_record();
+        assert_eq!(rec.compute_metered, 4);
+        assert_eq!(rec.data_quality_bps, 5000);
+    }
+
+    /// The seam's Rust patronage math reproduces the on-chain `PatronageLedger`
+    /// EXACTLY — the same three nodes + numbers as the co-op's
+    /// `FederatedSettlement.t.sol::test_coordinator_settles_round` (4000/1800/500).
+    #[test]
+    fn patronage_units_match_onchain_ledger() {
+        let cases = [
+            (4000.0_f32, 1.0_f32, 4000_u128), // node A: heavy compute, top quality
+            (2000.0, 0.9, 1800),              // node B: medium
+            (1000.0, 0.5, 500),               // node C: light
+        ];
+        for (compute, quality, expected_units) in cases {
+            let c = SignedContribution::create(
+                &ToyKeyedSigner::new("n", b"key-n".to_vec()),
+                contrib(compute, quality, "p"),
+                "m",
+                "t",
+            );
+            let row = SettlementRow::from_signed(&c, Some(ZoneId::PF));
+            // default unit weights (wCompute = wData = 10000 bps = 1.0)
+            assert_eq!(row.patronage_units(BPS_SCALE, BPS_SCALE), expected_units);
+        }
     }
 
     // -- Binding #5: provenance fold is deterministic + monotone -------------
@@ -446,18 +523,13 @@ mod tests {
 
             let result = gather_and_aggregate(&contribs, &verifier);
 
-            // Build settlement rows, injecting each node's data_quality.
-            let rows: Vec<SettlementRow> = result
-                .accepted
-                .iter()
-                .map(|a| {
-                    let dq = expected_quality[&a.node_id];
-                    SettlementRow::from_accepted(a, dq, Some(ZoneId::PF))
-                })
-                .collect();
+            // Build settlement rows straight from the signed contributions (both
+            // factors preserved — no information dropped through the gather).
+            let rows: Vec<SettlementRow> =
+                contribs.iter().map(|c| SettlementRow::from_signed(c, Some(ZoneId::PF))).collect();
 
             // (1) CONSERVATION: the seam neither loses nor creates reward weight.
-            let row_total: Q16 = rows.iter().fold(Q16::ZERO, |acc, r| acc.add(r.reward_weight));
+            let row_total: Q16 = rows.iter().fold(Q16::ZERO, |acc, r| acc.add(r.reward_weight()));
             assert_eq!(row_total, result.total_reward_weight, "round conserved total");
 
             // (2) data_quality is carried SEPARATELY (not pre-collapsed into the product).
