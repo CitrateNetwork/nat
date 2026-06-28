@@ -1,32 +1,80 @@
 #!/usr/bin/env bash
-# Run the CI checks locally in a clean Linux container — the same commands the
-# GitHub Actions `ci.yml` runs, on the pinned toolchain, so CI can be confirmed
-# green without depending on GitHub-hosted runners (useful when Actions is
-# blocked, e.g. a billing cap).
+# Local CI for nat — runs the full gate set on the host, on the pinned toolchain.
 #
-# Requires a Docker engine (Docker Desktop, or `colima start`). Uses the official
-# rust:1.96 image, which matches rust-toolchain.toml.
+# GitHub Actions is intentionally NOT used for nat right now (paid minutes are deferred
+# until production; the workflow in .github/workflows/ci.yml is gated to manual dispatch).
+# This script is the gate in the meantime: same checks a runner would do, plus the TLC
+# formal suite, run locally where the dev box already has the CUDA toolchain (nat-candle)
+# and authenticated git access to the private `citrate-fed-types` kernel.
 #
-# Usage: scripts/ci-local.sh
-set -euo pipefail
+# Usage:
+#   scripts/ci-local.sh            # full gate: fmt, clippy, test, cargo-deny, TLC
+#   scripts/ci-local.sh --fast     # skip the two slow gates (cargo-deny + TLC)
+#   scripts/ci-local.sh --no-tlc   # skip only the TLC formal suite
+#   scripts/ci-local.sh --no-deny  # skip only the supply-chain gate
+set -uo pipefail
 ROOT="$(git rev-parse --show-toplevel)"
-IMAGE="rust:1.96-bookworm"
+cd "$ROOT"
 
-echo ">> Pulling $IMAGE (first run only)"
-docker pull -q "$IMAGE" >/dev/null
+# cargo must shell out to system git so the private `citrate-fed-types` kernel fetches
+# with the developer's credentials / deploy key (libgit2 ignores the ssh config).
+export CARGO_NET_GIT_FETCH_WITH_CLI=true
+export CARGO_TERM_COLOR=always
+# NB: do NOT export RUSTFLAGS="-D warnings" — a global RUSTFLAGS *replaces* (does not
+# merge with) the `[target.aarch64] rustflags = +fp16` in .cargo/config.toml, which
+# gemm-common (via candle) needs to assemble its fp16 kernels on the GB10 DGX. Warnings
+# are denied via clippy's lint flag below (which covers every target), not via RUSTFLAGS.
 
-echo ">> Running the CI command set in a clean container"
-docker run --rm -t \
-  -v "$ROOT":/work -w /work \
-  -e CARGO_TERM_COLOR=always \
-  -e RUSTFLAGS="-D warnings" \
-  -e CARGO_TARGET_DIR=/tmp/nat-target \
-  "$IMAGE" bash -euo pipefail -c '
-    echo "### toolchain"; rustc --version; cargo --version
-    rustup component add rustfmt clippy >/dev/null 2>&1 || true
-    echo "### [1/4] fmt --check";  cargo fmt --all -- --check
-    echo "### [2/4] clippy";       cargo clippy --workspace --all-targets -- -D warnings
-    echo "### [3/4] test";         cargo test --workspace
-    echo "### [4/4] cargo-deny";   cargo install cargo-deny --locked >/dev/null 2>&1; cargo deny check advisories bans licenses sources
-    echo "### ALL CI CHECKS PASSED (linux container)"
-  '
+run_tlc=1
+run_deny=1
+for arg in "$@"; do
+  case "$arg" in
+    --fast)    run_tlc=0; run_deny=0 ;;
+    --no-tlc)  run_tlc=0 ;;
+    --no-deny) run_deny=0 ;;
+    *) echo "unknown flag: $arg" >&2; exit 2 ;;
+  esac
+done
+
+fail=0
+stage() { printf '\n\033[1m>> %s\033[0m\n' "$1"; }
+guard() { # guard <name> <cmd...>
+  local name="$1"; shift
+  local start; start=$(date +%s)
+  if "$@"; then
+    printf '   \033[32m✓ %s\033[0m (%ss)\n' "$name" "$(( $(date +%s) - start ))"
+  else
+    printf '   \033[31m✗ %s FAILED\033[0m\n' "$name"
+    fail=1
+  fi
+}
+
+stage "[1] rustfmt --check";  guard fmt    cargo fmt --all -- --check
+stage "[2] clippy (-D warnings)"; guard clippy cargo clippy --workspace --all-targets -- -D warnings
+stage "[3] test --workspace"; guard test   cargo test --workspace
+
+if [[ "$run_deny" == 1 ]]; then
+  stage "[4] cargo-deny (supply chain)"
+  if command -v cargo-deny >/dev/null 2>&1; then
+    guard cargo-deny cargo deny check advisories bans licenses sources
+  else
+    printf '   \033[33m• cargo-deny not installed — `cargo install cargo-deny --locked` (skipped)\033[0m\n'
+  fi
+fi
+
+if [[ "$run_tlc" == 1 ]]; then
+  stage "[5] TLC formal suite (nat/formal)"
+  if command -v java >/dev/null 2>&1; then
+    guard tlc bash scripts/run-tlc.sh
+  else
+    printf '   \033[33m• java not found — TLC formal gate skipped\033[0m\n'
+  fi
+fi
+
+echo
+if [[ "$fail" == 0 ]]; then
+  printf '\033[32m=== ALL LOCAL CI CHECKS PASSED ===\033[0m\n'
+else
+  printf '\033[31m=== LOCAL CI FAILED ===\033[0m\n'
+fi
+exit "$fail"

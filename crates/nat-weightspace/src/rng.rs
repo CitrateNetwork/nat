@@ -12,7 +12,9 @@ pub struct SeededRng {
 impl SeededRng {
     pub fn new(seed: u64) -> Self {
         // avoid the all-zero fixed point
-        SeededRng { state: seed ^ 0x9E37_79B9_7F4A_7C15 }
+        SeededRng {
+            state: seed ^ 0x9E37_79B9_7F4A_7C15,
+        }
     }
 
     pub fn next_u64(&mut self) -> u64 {

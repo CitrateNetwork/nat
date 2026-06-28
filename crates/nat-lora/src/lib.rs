@@ -25,8 +25,8 @@
 pub mod commit;
 mod linalg;
 
-use nat_weightspace::{encoder::GmnEncoder, WeightGraph};
 pub use nat_types::ZoneId;
+use nat_weightspace::{encoder::GmnEncoder, WeightGraph};
 
 // ---------------------------------------------------------------------------
 // WP-G0 — the LoRA primitive + apply
@@ -187,7 +187,13 @@ pub struct LoraGenerator {
 impl LoraGenerator {
     pub fn new(zone: ZoneId, atoms: Vec<SkillAtom>, latent_dim: usize) -> Self {
         let k = atoms.len();
-        LoraGenerator { zone, atoms, latent_dim, gain: vec![vec![0.0; latent_dim + 1]; k], alpha: 1.0 }
+        LoraGenerator {
+            zone,
+            atoms,
+            latent_dim,
+            gain: vec![vec![0.0; latent_dim + 1]; k],
+            alpha: 1.0,
+        }
     }
 
     pub fn num_atoms(&self) -> usize {
@@ -217,7 +223,10 @@ impl LoraGenerator {
     /// Predict the per-atom gains for a peer latent.
     pub fn predict_gains(&self, latent: &[f32]) -> Vec<f32> {
         let z = Self::aug(latent);
-        self.gain.iter().map(|grow| grow.iter().zip(&z).map(|(a, b)| a * b).sum()).collect()
+        self.gain
+            .iter()
+            .map(|grow| grow.iter().zip(&z).map(|(a, b)| a * b).sum())
+            .collect()
     }
 
     /// Generate the LoRA adapter for a peer latent: `ΔW = Σ_k gain_k (u_k ⊗ v_k)`, factored
@@ -228,11 +237,13 @@ impl LoraGenerator {
         let dim_in = self.atoms[0].v.len();
         let k = self.atoms.len();
         // B[o][k] = u_k[o]
-        let matrix_b: Vec<Vec<f32>> =
-            (0..dim_out).map(|o| (0..k).map(|kk| self.atoms[kk].u[o]).collect()).collect();
+        let matrix_b: Vec<Vec<f32>> = (0..dim_out)
+            .map(|o| (0..k).map(|kk| self.atoms[kk].u[o]).collect())
+            .collect();
         // A[k][i] = gain_k · v_k[i]
-        let matrix_a: Vec<Vec<f32>> =
-            (0..k).map(|kk| self.atoms[kk].v.iter().map(|&vi| gains[kk] * vi).collect()).collect();
+        let matrix_a: Vec<Vec<f32>> = (0..k)
+            .map(|kk| self.atoms[kk].v.iter().map(|&vi| gains[kk] * vi).collect())
+            .collect();
         LoraAdapter {
             zone: self.zone,
             rank: k,
@@ -251,7 +262,10 @@ mod tests {
 
     #[test]
     fn rank0_delta_is_identity_and_validate_catches_shape_bugs() {
-        let atoms = vec![SkillAtom { u: vec![1.0, 0.0], v: vec![0.0, 0.0, 0.0] }];
+        let atoms = vec![SkillAtom {
+            u: vec![1.0, 0.0],
+            v: vec![0.0, 0.0, 0.0],
+        }];
         let gen = LoraGenerator::new(ZoneId::PF, atoms, 4);
         // gains zero (unfit) → delta is all-zero → apply is identity.
         let lora = gen.generate(&[0.0, 0.0, 0.0, 0.0]);
@@ -267,7 +281,10 @@ mod tests {
     #[test]
     fn delta_is_low_rank_outer_product() {
         // one atom u⊗v with gain 2 → delta = 2·u vᵀ
-        let atoms = vec![SkillAtom { u: vec![1.0, -1.0], v: vec![1.0, 2.0] }];
+        let atoms = vec![SkillAtom {
+            u: vec![1.0, -1.0],
+            v: vec![1.0, 2.0],
+        }];
         let mut gen = LoraGenerator::new(ZoneId::PF, atoms, 1);
         // teach the gain map to output 2.0 for any latent: gain = [0, 2] (bias 2)
         gen.fit(&[vec![0.0], vec![1.0]], &[vec![2.0], vec![2.0]], 1e-6);
@@ -282,9 +299,16 @@ mod tests {
 
     #[test]
     fn registration_payload_is_field_aligned() {
-        let atoms = vec![SkillAtom { u: vec![1.0, 0.0], v: vec![1.0, 0.0] }];
+        let atoms = vec![SkillAtom {
+            u: vec![1.0, 0.0],
+            v: vec![1.0, 0.0],
+        }];
         let mut gen = LoraGenerator::new(ZoneId::CX, atoms, 2);
-        gen.fit(&[vec![0.0, 0.0], vec![1.0, 1.0]], &[vec![0.3], vec![0.7]], 1e-6);
+        gen.fit(
+            &[vec![0.0, 0.0], vec![1.0, 1.0]],
+            &[vec![0.3], vec![0.7]],
+            1e-6,
+        );
         let lora = gen.generate(&[0.5, 0.5]);
         let reg = lora.registration("basemodel-digest-abc");
         assert_eq!(reg.zone, ZoneId::CX);
