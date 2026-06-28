@@ -24,6 +24,8 @@
 use nat_types::Q16;
 use sha2::{Digest, Sha256};
 
+pub mod compress;
+
 /// One worker's pseudo-gradient for an outer round: a fixed-point delta vector. All
 /// pseudo-gradients in a round share dimensionality `dim`.
 #[derive(Debug, Clone, PartialEq, Eq)]
