@@ -32,6 +32,7 @@ members = [
     "crates/nat-federated",
     "crates/nat-aggregate",
     "crates/nat-distill",
+    "crates/nat-weightspace",
 ]
 
 [workspace.package]
@@ -67,6 +68,7 @@ nat-train = { path = "crates/nat-train" }
 nat-eval = { path = "crates/nat-eval" }
 nat-aggregate = { path = "crates/nat-aggregate" }
 nat-distill = { path = "crates/nat-distill" }
+nat-weightspace = { path = "crates/nat-weightspace" }
 
 [profile.release]
 lto = true
