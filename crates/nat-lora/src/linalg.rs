@@ -4,7 +4,9 @@
 
 /// `m · x` for `m` `[r][c]` and `x` `[c]`.
 pub fn matvec(m: &[Vec<f32>], x: &[f32]) -> Vec<f32> {
-    m.iter().map(|row| row.iter().zip(x).map(|(a, b)| a * b).sum()).collect()
+    m.iter()
+        .map(|row| row.iter().zip(x).map(|(a, b)| a * b).sum())
+        .collect()
 }
 
 /// Transpose an `[r][c]` matrix to `[c][r]`.
@@ -33,7 +35,10 @@ pub fn matmul(a: &[Vec<f32>], b: &[Vec<f32>]) -> Vec<Vec<f32>> {
 /// singular. `n` is small (the augmented latent dimension).
 pub fn invert(m: &[Vec<f32>]) -> Option<Vec<Vec<f32>>> {
     let n = m.len();
-    let mut a: Vec<Vec<f64>> = m.iter().map(|r| r.iter().map(|&x| x as f64).collect()).collect();
+    let mut a: Vec<Vec<f64>> = m
+        .iter()
+        .map(|r| r.iter().map(|&x| x as f64).collect())
+        .collect();
     let mut inv: Vec<Vec<f64>> = (0..n)
         .map(|i| (0..n).map(|j| if i == j { 1.0 } else { 0.0 }).collect())
         .collect();
@@ -73,7 +78,11 @@ pub fn invert(m: &[Vec<f32>]) -> Option<Vec<Vec<f32>>> {
             }
         }
     }
-    Some(inv.iter().map(|r| r.iter().map(|&x| x as f32).collect()).collect())
+    Some(
+        inv.iter()
+            .map(|r| r.iter().map(|&x| x as f32).collect())
+            .collect(),
+    )
 }
 
 /// Ridge regression. Given inputs `z` `[n][p]` (already including any bias column) and

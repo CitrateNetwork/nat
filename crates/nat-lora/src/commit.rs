@@ -66,12 +66,22 @@ mod tests {
 
     fn sample_adapter() -> LoraAdapter {
         let atoms = vec![
-            SkillAtom { u: vec![1.0, -0.5, 0.25, 0.0], v: vec![0.3, -0.2, 0.1, 0.4, -0.1, 0.2] },
-            SkillAtom { u: vec![0.0, 0.5, -0.5, 1.0], v: vec![-0.3, 0.2, 0.5, -0.1, 0.0, 0.3] },
+            SkillAtom {
+                u: vec![1.0, -0.5, 0.25, 0.0],
+                v: vec![0.3, -0.2, 0.1, 0.4, -0.1, 0.2],
+            },
+            SkillAtom {
+                u: vec![0.0, 0.5, -0.5, 1.0],
+                v: vec![-0.3, 0.2, 0.5, -0.1, 0.0, 0.3],
+            },
         ];
         let mut gen = LoraGenerator::new(ZoneId::PF, atoms, 3);
         gen.fit(
-            &[vec![0.0, 0.0, 0.0], vec![1.0, 0.0, 1.0], vec![0.0, 1.0, 1.0]],
+            &[
+                vec![0.0, 0.0, 0.0],
+                vec![1.0, 0.0, 1.0],
+                vec![0.0, 1.0, 1.0],
+            ],
             &[vec![0.2, 0.1], vec![0.6, 0.3], vec![0.4, 0.5]],
             1e-6,
         );
@@ -90,7 +100,11 @@ mod tests {
         let before = lora_commitment(&a);
         let mut t = a.clone();
         t.matrix_a[0][0] += 0.01;
-        assert_ne!(before, lora_commitment(&t), "tampering a factor must flip the digest");
+        assert_ne!(
+            before,
+            lora_commitment(&t),
+            "tampering a factor must flip the digest"
+        );
     }
 
     #[test]

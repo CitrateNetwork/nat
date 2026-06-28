@@ -26,13 +26,23 @@ impl GmnEncoder {
         let mut rng = crate::rng::SeededRng::new(seed);
         let mat = |rows: usize, cols: usize, rng: &mut crate::rng::SeededRng| {
             (0..rows)
-                .map(|_| (0..cols).map(|_| rng.next_f32() * 0.5).collect::<Vec<f32>>())
+                .map(|_| {
+                    (0..cols)
+                        .map(|_| rng.next_f32() * 0.5)
+                        .collect::<Vec<f32>>()
+                })
                 .collect::<Vec<_>>()
         };
         let proj_node = mat(latent, FEAT_DIM, &mut rng);
         let proj_edge = mat(latent, EDGE_FEAT_DIM, &mut rng);
         let proj_self = mat(latent, latent, &mut rng);
-        GmnEncoder { latent, rounds, proj_node, proj_edge, proj_self }
+        GmnEncoder {
+            latent,
+            rounds,
+            proj_node,
+            proj_edge,
+            proj_self,
+        }
     }
 
     pub fn latent_dim(&self) -> usize {
@@ -43,8 +53,11 @@ impl GmnEncoder {
     pub fn encode(&self, g: &WeightGraph) -> Vec<f32> {
         let n = g.nodes.len();
         // initial node states h = tanh(proj_node · feats)
-        let mut h: Vec<Vec<f32>> =
-            g.nodes.iter().map(|node| tanh_vec(matvec(&self.proj_node, &node.feats))).collect();
+        let mut h: Vec<Vec<f32>> = g
+            .nodes
+            .iter()
+            .map(|node| tanh_vec(matvec(&self.proj_node, &node.feats)))
+            .collect();
 
         for _ in 0..self.rounds {
             let mut msg = vec![vec![0.0f32; self.latent]; n];
@@ -111,9 +124,18 @@ pub fn permute_nodes(g: &WeightGraph, perm: &[usize]) -> WeightGraph {
     let edges = g
         .edges
         .iter()
-        .map(|e| crate::GraphEdge { src: perm[e.src], dst: perm[e.dst], kind: e.kind, weight: e.weight })
+        .map(|e| crate::GraphEdge {
+            src: perm[e.src],
+            dst: perm[e.dst],
+            kind: e.kind,
+            weight: e.weight,
+        })
         .collect();
-    WeightGraph { arch: g.arch, nodes, edges }
+    WeightGraph {
+        arch: g.arch,
+        nodes,
+        edges,
+    }
 }
 
 // ---- small numeric helpers (research/f32 layer) ---------------------------
@@ -140,7 +162,11 @@ fn tanh_vec(mut v: Vec<f32>) -> Vec<f32> {
 
 /// L2 distance between two equal-length vectors.
 pub fn l2(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum::<f32>().sqrt()
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y) * (x - y))
+        .sum::<f32>()
+        .sqrt()
 }
 
 /// Pearson correlation coefficient.
@@ -196,7 +222,10 @@ mod tests {
     #[test]
     fn gmn_is_permutation_invariant_where_flatten_baseline_is_not() {
         let enc = GmnEncoder::new(16, 3, 99);
-        for g in [lower_nat(&nat_checkpoint(5)), lower_transformer(&transformer_checkpoint(5, 2, 4))] {
+        for g in [
+            lower_nat(&nat_checkpoint(5)),
+            lower_transformer(&transformer_checkpoint(5, 2, 4)),
+        ] {
             let perm = reverse_perm(g.nodes.len());
             let permuted = permute_nodes(&g, &perm);
 
@@ -208,7 +237,10 @@ mod tests {
 
             // GMN: invariant (float-noise tolerance). Baseline: provably moves.
             assert!(gmn_perm_dist < 1e-4, "GMN not invariant: {gmn_perm_dist}");
-            assert!(flat_perm_dist > 1e-2, "baseline should be permutation-sensitive: {flat_perm_dist}");
+            assert!(
+                flat_perm_dist > 1e-2,
+                "baseline should be permutation-sensitive: {flat_perm_dist}"
+            );
             assert!(
                 flat_perm_dist > gmn_perm_dist * 100.0,
                 "GMN must be far more invariant than flatten baseline"
@@ -216,7 +248,12 @@ mod tests {
         }
         // sanity: the identity permutation is exactly invariant in both
         let g = lower_nat(&nat_checkpoint(5));
-        assert!(l2(&enc.encode(&g), &enc.encode(&permute_nodes(&g, &identity_perm(g.nodes.len())))) < 1e-6);
+        assert!(
+            l2(
+                &enc.encode(&g),
+                &enc.encode(&permute_nodes(&g, &identity_perm(g.nodes.len())))
+            ) < 1e-6
+        );
     }
 
     // --- diagnosis: one encoder reads a planted property on BOTH architectures ---
@@ -243,7 +280,14 @@ mod tests {
     fn scale_xf(seed: u64, blocks: usize, d: usize, s: f32) -> TransformerCheckpoint {
         let mut ck = transformer_checkpoint(seed, blocks, d);
         for b in &mut ck.blocks {
-            for m in [&mut b.wq, &mut b.wk, &mut b.wv, &mut b.wo, &mut b.ffn_up, &mut b.ffn_down] {
+            for m in [
+                &mut b.wq,
+                &mut b.wk,
+                &mut b.wv,
+                &mut b.wo,
+                &mut b.ffn_up,
+                &mut b.ffn_down,
+            ] {
                 scale_linear(m, s);
             }
         }
@@ -271,14 +315,24 @@ mod tests {
 
         let scales: Vec<f32> = (0..11).map(|i| 0.4 + 0.1 * i as f32).collect(); // 0.4..1.4
 
-        let nat_feats: Vec<f32> =
-            scales.iter().map(|&s| probe_feature(&enc, &dir, &lower_nat(&scale_nat(5, s)))).collect();
-        let xf_feats: Vec<f32> =
-            scales.iter().map(|&s| probe_feature(&enc, &dir, &lower_transformer(&scale_xf(5, 2, 4, s)))).collect();
+        let nat_feats: Vec<f32> = scales
+            .iter()
+            .map(|&s| probe_feature(&enc, &dir, &lower_nat(&scale_nat(5, s))))
+            .collect();
+        let xf_feats: Vec<f32> = scales
+            .iter()
+            .map(|&s| probe_feature(&enc, &dir, &lower_transformer(&scale_xf(5, 2, 4, s))))
+            .collect();
 
         // the planted scalar is recovered monotonically on BOTH architectures…
-        assert!(is_strictly_monotonic(&nat_feats), "NAT diagnosis not monotone: {nat_feats:?}");
-        assert!(is_strictly_monotonic(&xf_feats), "transformer diagnosis not monotone: {xf_feats:?}");
+        assert!(
+            is_strictly_monotonic(&nat_feats),
+            "NAT diagnosis not monotone: {nat_feats:?}"
+        );
+        assert!(
+            is_strictly_monotonic(&xf_feats),
+            "transformer diagnosis not monotone: {xf_feats:?}"
+        );
         // …and with high linear correlation (the publishable cross-arch measurement).
         let nat_r = pearson(&scales, &nat_feats).abs();
         let xf_r = pearson(&scales, &xf_feats).abs();

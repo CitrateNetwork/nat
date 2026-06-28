@@ -196,7 +196,10 @@ impl WeightGraph {
     }
 
     pub fn hidden_count(&self) -> usize {
-        self.nodes.iter().filter(|n| n.kind == NodeKind::Hidden).count()
+        self.nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Hidden)
+            .count()
     }
 
     /// WP-B0 acceptance: a NAT checkpoint and a transformer checkpoint both validate
@@ -209,15 +212,24 @@ impl WeightGraph {
         let n = self.nodes.len();
         for (i, node) in self.nodes.iter().enumerate() {
             if node.feats.len() != FEAT_DIM {
-                return Err(GraphError::BadNodeFeatureDim { node: i, got: node.feats.len() });
+                return Err(GraphError::BadNodeFeatureDim {
+                    node: i,
+                    got: node.feats.len(),
+                });
             }
         }
         for (i, e) in self.edges.iter().enumerate() {
             if e.src >= n {
-                return Err(GraphError::EdgeEndpointOutOfRange { edge: i, endpoint: e.src });
+                return Err(GraphError::EdgeEndpointOutOfRange {
+                    edge: i,
+                    endpoint: e.src,
+                });
             }
             if e.dst >= n {
-                return Err(GraphError::EdgeEndpointOutOfRange { edge: i, endpoint: e.dst });
+                return Err(GraphError::EdgeEndpointOutOfRange {
+                    edge: i,
+                    endpoint: e.dst,
+                });
             }
         }
         if !self.nodes.iter().any(|x| x.kind == NodeKind::Input) {
@@ -243,8 +255,18 @@ fn zone_index(z: ZoneId) -> usize {
 /// B/C/O projections plus the scalar decay.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ZoneWeights {
-    Attention { wq: Linear, wk: Linear, wv: Linear, wo: Linear },
-    Ssm { wb: Linear, wc: Linear, wo: Linear, log_a: f32 },
+    Attention {
+        wq: Linear,
+        wk: Linear,
+        wv: Linear,
+        wo: Linear,
+    },
+    Ssm {
+        wb: Linear,
+        wc: Linear,
+        wo: Linear,
+        log_a: f32,
+    },
 }
 
 /// A NAT checkpoint: the zone graph (sidecar) plus per-zone weights. Mirrors the real
@@ -257,7 +279,10 @@ pub struct NatCheckpoint {
 
 impl NatCheckpoint {
     fn weights_for(&self, z: ZoneId) -> Option<&ZoneWeights> {
-        self.zone_weights.iter().find(|(id, _)| *id == z).map(|(_, w)| w)
+        self.zone_weights
+            .iter()
+            .find(|(id, _)| *id == z)
+            .map(|(_, w)| w)
     }
 }
 
@@ -286,7 +311,9 @@ pub fn lower_nat(ckpt: &NatCheckpoint) -> WeightGraph {
         if zd.core == CoreType::None {
             continue; // MX harness has no weights
         }
-        let Some(zw) = ckpt.weights_for(zd.id) else { continue };
+        let Some(zw) = ckpt.weights_for(zd.id) else {
+            continue;
+        };
         let gate = nodes.len();
         nodes.push(Node::new(NodeKind::ZoneGate(zd.id), 0.0));
         edges.push(GraphEdge {
@@ -314,7 +341,12 @@ pub fn lower_nat(ckpt: &NatCheckpoint) -> WeightGraph {
                 ZoneWeights::Ssm { .. } => EdgeKind::SsmO,
             };
             for &w in brow {
-                edges.push(GraphEdge { src: gate, dst: h, kind, weight: w });
+                edges.push(GraphEdge {
+                    src: gate,
+                    dst: h,
+                    kind,
+                    weight: w,
+                });
             }
             // hidden → merge
             edges.push(GraphEdge {
@@ -336,7 +368,12 @@ pub fn lower_nat(ckpt: &NatCheckpoint) -> WeightGraph {
                 attach_matrix(&mut edges, gate, &hidden, wb, EdgeKind::SsmB);
                 attach_matrix(&mut edges, gate, &hidden, wc, EdgeKind::SsmC);
                 // the scalar decay as a gate self-loop edge
-                edges.push(GraphEdge { src: gate, dst: gate, kind: EdgeKind::SsmO, weight: *log_a });
+                edges.push(GraphEdge {
+                    src: gate,
+                    dst: gate,
+                    kind: EdgeKind::SsmO,
+                    weight: *log_a,
+                });
             }
         }
     }
@@ -348,7 +385,11 @@ pub fn lower_nat(ckpt: &NatCheckpoint) -> WeightGraph {
         weight: 1.0,
     });
 
-    WeightGraph { arch: ArchTag::Nat, nodes, edges }
+    WeightGraph {
+        arch: ArchTag::Nat,
+        nodes,
+        edges,
+    }
 }
 
 /// Spread a projection matrix's rows across the supplied hidden nodes (cycling if the
@@ -366,7 +407,12 @@ fn attach_matrix(
     for (r, row) in m.w.iter().enumerate() {
         let h = hidden[r % hidden.len()];
         for &w in row {
-            edges.push(GraphEdge { src: gate, dst: h, kind, weight: w });
+            edges.push(GraphEdge {
+                src: gate,
+                dst: h,
+                kind,
+                weight: w,
+            });
         }
     }
 }
@@ -447,10 +493,19 @@ pub fn lower_transformer(ckpt: &TransformerCheckpoint) -> WeightGraph {
     }
     if edges.is_empty() {
         // a zero-block transformer still has the input→output boundary
-        edges.push(GraphEdge { src: input, dst: output, kind: EdgeKind::HiddenToOutput, weight: 1.0 });
+        edges.push(GraphEdge {
+            src: input,
+            dst: output,
+            kind: EdgeKind::HiddenToOutput,
+            weight: 1.0,
+        });
     }
 
-    WeightGraph { arch: ArchTag::Transformer, nodes, edges }
+    WeightGraph {
+        arch: ArchTag::Transformer,
+        nodes,
+        edges,
+    }
 }
 
 /// Wire a source layer into a destination layer by a projection matrix `[out][in]`,
@@ -473,7 +528,12 @@ fn fan_in(
         }
         for (c, &src) in src_layer.iter().enumerate() {
             let w = row[c % row.len()];
-            edges.push(GraphEdge { src, dst, kind, weight: w });
+            edges.push(GraphEdge {
+                src,
+                dst,
+                kind,
+                weight: w,
+            });
         }
     }
 }
@@ -487,7 +547,9 @@ mod tests {
     /// fills these from tensors; tests synthesize them reproducibly).
     pub(crate) fn seeded_linear(out: usize, inp: usize, seed: u64) -> Linear {
         let mut rng = SeededRng::new(seed);
-        let w = (0..out).map(|_| (0..inp).map(|_| rng.next_f32()).collect()).collect();
+        let w = (0..out)
+            .map(|_| (0..inp).map(|_| rng.next_f32()).collect())
+            .collect();
         let b = (0..out).map(|_| rng.next_f32()).collect();
         Linear::new(w, b)
     }
@@ -515,10 +577,17 @@ mod tests {
             };
             zone_weights.push((zd.id, zw));
         }
-        NatCheckpoint { sidecar, zone_weights }
+        NatCheckpoint {
+            sidecar,
+            zone_weights,
+        }
     }
 
-    pub(crate) fn transformer_checkpoint(seed: u64, blocks: usize, d: usize) -> TransformerCheckpoint {
+    pub(crate) fn transformer_checkpoint(
+        seed: u64,
+        blocks: usize,
+        d: usize,
+    ) -> TransformerCheckpoint {
         let blks = (0..blocks)
             .map(|i| {
                 let s = seed.wrapping_add(i as u64 * 211);
@@ -532,7 +601,10 @@ mod tests {
                 }
             })
             .collect();
-        TransformerCheckpoint { d_model: d, blocks: blks }
+        TransformerCheckpoint {
+            d_model: d,
+            blocks: blks,
+        }
     }
 
     #[test]
@@ -555,8 +627,16 @@ mod tests {
     #[test]
     fn validate_rejects_dangling_edge() {
         let mut g = lower_transformer(&transformer_checkpoint(1, 1, 3));
-        g.edges.push(GraphEdge { src: 0, dst: 999, kind: EdgeKind::FfnUp, weight: 1.0 });
-        assert!(matches!(g.validate(), Err(GraphError::EdgeEndpointOutOfRange { .. })));
+        g.edges.push(GraphEdge {
+            src: 0,
+            dst: 999,
+            kind: EdgeKind::FfnUp,
+            weight: 1.0,
+        });
+        assert!(matches!(
+            g.validate(),
+            Err(GraphError::EdgeEndpointOutOfRange { .. })
+        ));
     }
 
     #[test]
@@ -566,7 +646,16 @@ mod tests {
             assert_eq!(node.feats.len(), FEAT_DIM);
         }
         // exactly one router, one merge, one input, one output
-        assert_eq!(g.nodes.iter().filter(|n| n.kind == NodeKind::Router).count(), 1);
-        assert_eq!(g.nodes.iter().filter(|n| n.kind == NodeKind::Merge).count(), 1);
+        assert_eq!(
+            g.nodes
+                .iter()
+                .filter(|n| n.kind == NodeKind::Router)
+                .count(),
+            1
+        );
+        assert_eq!(
+            g.nodes.iter().filter(|n| n.kind == NodeKind::Merge).count(),
+            1
+        );
     }
 }

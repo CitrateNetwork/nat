@@ -37,9 +37,17 @@ impl CompressedGradient {
 /// ±127 and the rest scale linearly. All-zero input maps to scale 1 / all-zero values
 /// (no division by zero). Deterministic: integer ops only.
 pub fn compress(coords: &[Q16]) -> CompressedGradient {
-    let max_abs = coords.iter().map(|c| c.raw().unsigned_abs()).max().unwrap_or(0);
+    let max_abs = coords
+        .iter()
+        .map(|c| c.raw().unsigned_abs())
+        .max()
+        .unwrap_or(0);
     // scale_raw = ceil(max_abs / 127) so the max coordinate quantizes within ±127.
-    let scale_raw = if max_abs == 0 { 1 } else { max_abs.div_ceil(127) as i64 };
+    let scale_raw = if max_abs == 0 {
+        1
+    } else {
+        max_abs.div_ceil(127) as i64
+    };
     let values = coords
         .iter()
         .map(|c| {
@@ -55,7 +63,10 @@ pub fn compress(coords: &[Q16]) -> CompressedGradient {
 /// Exact integer multiply — deterministic, lossy only by the quantization already
 /// baked into [`compress`].
 pub fn decompress(c: &CompressedGradient) -> Vec<Q16> {
-    c.values.iter().map(|&v| Q16::from_raw(v as i64 * c.scale_raw)).collect()
+    c.values
+        .iter()
+        .map(|&v| Q16::from_raw(v as i64 * c.scale_raw))
+        .collect()
 }
 
 /// Round-to-nearest integer division (ties away from zero), branch-symmetric for
@@ -127,8 +138,7 @@ mod tests {
             .collect();
         let r = aggregate(&compressed, 1, 64, b"frozen-seed-v1").expect("aggregate");
         assert_eq!(
-            r.digest,
-            "014ee81a5ef2a076780689dd60b743c218f5e74788fa58678f3f51b2837c4f9c",
+            r.digest, "014ee81a5ef2a076780689dd60b743c218f5e74788fa58678f3f51b2837c4f9c",
             "compressed-path Q16 aggregate digest drifted — review before re-freezing"
         );
     }

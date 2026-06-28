@@ -147,7 +147,10 @@ mod tests {
 
     #[test]
     fn digest_is_permutation_invariant() {
-        for g in [lower_nat(&nat_checkpoint(11)), lower_transformer(&transformer_checkpoint(11, 2, 4))] {
+        for g in [
+            lower_nat(&nat_checkpoint(11)),
+            lower_transformer(&transformer_checkpoint(11, 2, 4)),
+        ] {
             let perm: Vec<usize> = (0..g.nodes.len()).rev().collect();
             let permuted = permute_nodes(&g, &perm);
             assert_eq!(
@@ -164,9 +167,17 @@ mod tests {
         let before = canonical_digest(&g);
         let mut tampered = g.clone();
         // flip a single weight on a single edge — must change the digest.
-        let target = tampered.edges.iter_mut().find(|e| e.kind == EdgeKind::AttnQ).expect("an AttnQ edge");
+        let target = tampered
+            .edges
+            .iter_mut()
+            .find(|e| e.kind == EdgeKind::AttnQ)
+            .expect("an AttnQ edge");
         target.weight += 0.01;
-        assert_ne!(before, canonical_digest(&tampered), "tampering must be detected");
+        assert_ne!(
+            before,
+            canonical_digest(&tampered),
+            "tampering must be detected"
+        );
     }
 
     #[test]
@@ -207,7 +218,12 @@ mod tests {
         let g = lower_transformer(&transformer_checkpoint(11, 2, 4));
         let before = canonical_digest(&g);
         let mut more = g.clone();
-        more.edges.push(GraphEdge { src: 0, dst: 1, kind: EdgeKind::FfnUp, weight: 0.3 });
+        more.edges.push(GraphEdge {
+            src: 0,
+            dst: 1,
+            kind: EdgeKind::FfnUp,
+            weight: 0.3,
+        });
         assert_ne!(before, canonical_digest(&more));
     }
 }

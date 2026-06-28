@@ -1,12 +1,15 @@
-# CI for nat. Mirrors the citrate-comms / citrate-compute-pool posture:
-# fmt + clippy (warnings deny) + test on the pinned toolchain, plus a
-# supply-chain gate (cargo-deny). The Gate-2 acceptance tests run as part of
-# `cargo test` (they mirror features/gate2_*.feature).
+# CI for nat. fmt + clippy (warnings deny) + test on the pinned toolchain, plus a
+# supply-chain gate (cargo-deny). The Gate-2 acceptance tests run as part of `cargo test`.
+#
+# *** Manual dispatch only (2026-06-28). ***
+# GitHub-hosted Actions are deferred until production (paid minutes; the runners also
+# can't build nat-candle's CUDA path). The gate in the meantime is LOCAL CI —
+# `scripts/ci-local.sh` — which runs this exact check set (plus the TLC formal suite) on
+# the dev box. When a self-hosted CUDA runner + the citrate-fed-types deploy key land for
+# production, restore the `push`/`pull_request` triggers below.
 name: ci
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
