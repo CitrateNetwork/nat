@@ -749,6 +749,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nat-lora"
+version = "0.0.1"
+dependencies = [
+ "nat-distill",
+ "nat-sidecar",
+ "nat-types",
+ "nat-weightspace",
+ "sha2",
+]
+
+[[package]]
 name = "nat-mcp"
 version = "0.0.1"
 dependencies = [
