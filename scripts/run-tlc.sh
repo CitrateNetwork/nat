@@ -22,7 +22,7 @@ cd "$ROOT/formal"
 fail=0
 for m in MergeDeterminism AsyncGather McpHarness \
          GradientAggregation GradientAggregationAdversarial UnifiedSettlement \
-         WeightCommitment; do
+         WeightCommitment LoraRegistration; do
   log="/tmp/tlc-$m.log"
   if java -cp "$JAR" tlc2.TLC -metadir "/tmp/tlc-$m" -config "$m.cfg" "$m.tla" \
        >"$log" 2>&1 && grep -q 'No error has been found' "$log"; then
