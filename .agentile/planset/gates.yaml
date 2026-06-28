@@ -20,11 +20,13 @@ gates:
           TLC-green 2026-06-27 (scripts/run-tlc.sh): MergeDeterminism (31 states),
           AsyncGather (40), McpHarness (10), GradientAggregation (625),
           GradientAggregationAdversarial (905), UnifiedSettlement (8),
-          WeightCommitment (361) — no errors.
-          The last four added by the Federated Meta-Learning program: WS-1 verifiable
+          WeightCommitment (361), LoraRegistration (961) — no errors.
+          The last five added by the Federated Meta-Learning program: WS-1 verifiable
           gradient aggregation (determinism + ByzantineCannotFlipUnderHonestDominance +
-          WindowCloses liveness), the WS-0 UNIFY-S1 settlement-conservation proof, and
-          the WS-2 Layer B WeightCommitment soundness + tamper-detection proof.
+          WindowCloses liveness), the WS-0 UNIFY-S1 settlement-conservation proof, the
+          WS-2 Layer B WeightCommitment soundness + tamper-detection proof, and the WS-3
+          LoraRegistration soundness proof (RegistrationSound + OnlyVerifiedRegisters +
+          TamperRejected).
           Function constants overridden via `<- ScoreFcn`/`WeightFcn` (TLC cfg can't
           hold a function literal).
         evidence: formal/ ; scripts/run-tlc.sh
