@@ -203,9 +203,10 @@ pub fn check_aggregable(deltas: &[ZoneWeightDelta]) -> Result<(ZoneId, usize), S
 // Binding #4 — one ledger; the data_quality term flows to FederatedSettlement.
 // ---------------------------------------------------------------------------
 
-/// Basis-point scale used by the co-op `PatronageLedger` (10000 bps = 1.0). The
-/// on-chain weights `wCompute`/`wData` and `dataQualityBps` are all on this grid.
-pub const BPS_SCALE: u32 = 10_000;
+/// Basis-point scale used by the co-op `PatronageLedger` (10000 bps = 1.0), re-exported
+/// from the shared `citrate-fed-types` kernel so the seam and `citrate-chain` reference
+/// one constant. The on-chain weights `wCompute`/`wData` and `dataQualityBps` are on this grid.
+pub use citrate_fed_types::settlement::BPS_SCALE;
 
 /// A single unified settlement record (binding #4). Where the legacy
 /// [`crate::Settlement`] trait settles only `(node_id, reward_weight)`, this carries
@@ -247,6 +248,21 @@ impl SettlementRow {
         }
     }
 
+    /// The two factors as the shared kernel's settlement row — the ledger math is a pure
+    /// function of `(compute_metered, data_quality)`, so this carries just those (node id,
+    /// zone and trace hash are irrelevant to the unit calculation). Delegating the math to
+    /// `citrate-fed-types` is what keeps the seam and `citrate-chain` bit-identical (Gate-4
+    /// WP-W0 stage 2); the on-chain-mirroring field shape lives in [`SettlementRow`] above.
+    fn kernel_math_row(&self) -> citrate_fed_types::settlement::SettlementRow {
+        citrate_fed_types::settlement::SettlementRow::new(
+            "",
+            self.compute_metered,
+            self.data_quality,
+            None,
+            "",
+        )
+    }
+
     /// The collapsed reward weight `compute × data_quality` — identical to
     /// [`nat_train::StepContribution::reward_weight`], so the seam and the gather
     /// agree on the total.
@@ -254,22 +270,16 @@ impl SettlementRow {
         self.compute_metered.mul(self.data_quality)
     }
 
-    /// `data_quality` (Q16 in [0,1]) as the on-chain `dataQualityBps` (u16 in
-    /// [0,10000]). Round-to-nearest so a grid value like 0.9 maps to exactly 9000
-    /// (floor would give 8999 — a 1-bps drift that would desync the Rust seam from
-    /// the Solidity ledger). Clamped fail-safe: a score outside [0,1] cannot inflate
-    /// units.
+    /// `data_quality` (Q16 in [0,1]) as the on-chain `dataQualityBps` (u16 in [0,10000]),
+    /// round-to-nearest (`0.9 → 9000`, not `8999`). Delegated to the kernel.
     pub fn data_quality_bps(&self) -> u16 {
-        let one = Q16::ONE.raw() as i128;
-        let raw = self.data_quality.raw().clamp(0, Q16::ONE.raw()) as i128;
-        // bps = round(raw * 10000 / 2^16) = (raw * 10000 + 2^15) / 2^16.
-        ((raw * BPS_SCALE as i128 + one / 2) / one) as u16
+        self.kernel_math_row().data_quality_bps()
     }
 
-    /// `compute_metered` (Q16) as the on-chain integer `computeMetered` unit count
-    /// (its non-negative integer part).
+    /// `compute_metered` (Q16) as the on-chain integer `computeMetered` unit count.
+    /// Delegated to the kernel.
     pub fn compute_units(&self) -> u128 {
-        (self.compute_metered.raw().max(0) >> 16) as u128
+        self.kernel_math_row().compute_units()
     }
 
     /// The on-chain `recordContribution` call shape for this row.
@@ -280,15 +290,12 @@ impl SettlementRow {
         }
     }
 
-    /// A **bit-exact Rust replica of `PatronageLedger.recordContribution`'s** unit
-    /// math: `p = (compute·wCompute/1e4)·(qualityBps·wData/1e4)/1e4`. Lets the seam
-    /// prove it agrees with the Solidity ledger on the minted patronage units before
-    /// the live chain call exists (the Gate-4 adapter only relays; the math is here).
+    /// A **bit-exact replica of `PatronageLedger.recordContribution`'s** unit math:
+    /// `p = (compute·wCompute/1e4)·(qualityBps·wData/1e4)/1e4`. Delegated to the shared
+    /// kernel, so the seam, `citrate-chain`, and the Solidity ledger all mint identical units.
     pub fn patronage_units(&self, w_compute_bps: u32, w_data_bps: u32) -> u128 {
-        let weighted_compute = self.compute_units() * w_compute_bps as u128 / BPS_SCALE as u128;
-        let weighted_quality =
-            self.data_quality_bps() as u128 * w_data_bps as u128 / BPS_SCALE as u128;
-        weighted_compute * weighted_quality / BPS_SCALE as u128
+        self.kernel_math_row()
+            .patronage_units(w_compute_bps, w_data_bps)
     }
 }
 

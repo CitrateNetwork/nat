@@ -10,53 +10,25 @@
 //! `nat/formal/LoraRegistration.tla` proves the registration protocol built on this digest.
 
 use crate::LoraAdapter;
-use nat_types::Q16;
-use sha2::{Digest, Sha256};
-
-fn q(v: f32) -> [u8; 8] {
-    Q16::from_f32(v).raw().to_le_bytes()
-}
+use citrate_fed_types::lora::{lora_commitment as kernel_lora_commitment, LoraFactors};
 
 /// The Q16-exact, rank-order-independent, tamper-detecting LoRA commitment.
+///
+/// As of Gate-4 WP-W0 (stage 2) the digest is computed by the shared `citrate-fed-types`
+/// kernel, so `citrate-chain` verifies `LoRAFactory.adapterModelCommitment` against the
+/// *same code*. The kernel preserves the original domain (`nat-lora-commit-v1`) and
+/// serialization, so the committed bytes are byte-identical — the frozen `bd08b278…` test
+/// below is the regression guard.
 pub fn lora_commitment(a: &LoraAdapter) -> String {
-    // One serialized blob per rank atom: its B column (length dim_out) ++ its A row
-    // (length dim_in). Sorting the blobs makes the digest independent of atom ordering.
-    let mut atoms: Vec<Vec<u8>> = (0..a.rank)
-        .map(|k| {
-            let mut blob = Vec::with_capacity((a.dim_out + a.dim_in) * 8);
-            for o in 0..a.dim_out {
-                blob.extend_from_slice(&q(a.matrix_b[o][k]));
-            }
-            for i in 0..a.dim_in {
-                blob.extend_from_slice(&q(a.matrix_a[k][i]));
-            }
-            blob
-        })
-        .collect();
-    atoms.sort_unstable();
-
-    let mut h = Sha256::new();
-    h.update(b"nat-lora-commit-v1");
-    h.update([a.zone as u8]);
-    h.update((a.rank as u64).to_le_bytes());
-    h.update((a.dim_out as u64).to_le_bytes());
-    h.update((a.dim_in as u64).to_le_bytes());
-    h.update(q(a.alpha));
-    for blob in &atoms {
-        h.update((blob.len() as u32).to_le_bytes());
-        h.update(blob);
-    }
-    hex(&h.finalize())
-}
-
-fn hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        s.push(HEX[(b >> 4) as usize] as char);
-        s.push(HEX[(b & 0xf) as usize] as char);
-    }
-    s
+    kernel_lora_commitment(&LoraFactors {
+        zone_tag: a.zone as u8,
+        rank: a.rank,
+        dim_out: a.dim_out,
+        dim_in: a.dim_in,
+        alpha: a.alpha,
+        matrix_a: a.matrix_a.clone(),
+        matrix_b: a.matrix_b.clone(),
+    })
 }
 
 #[cfg(test)]
