@@ -42,7 +42,11 @@ mod tests {
 
     #[test]
     fn determinism_same_inputs_same_digest() {
-        let g = vec![pg("a", &[1.0, 2.0]), pg("b", &[1.5, 2.5]), pg("c", &[1.25, 2.25])];
+        let g = vec![
+            pg("a", &[1.0, 2.0]),
+            pg("b", &[1.5, 2.5]),
+            pg("c", &[1.25, 2.25]),
+        ];
         let r1 = one_per_bucket(&g, 0);
         let r2 = one_per_bucket(&g, 0);
         assert_eq!(r1, r2);
@@ -51,7 +55,12 @@ mod tests {
 
     #[test]
     fn order_independent_under_shuffle() {
-        let g = vec![pg("a", &[1.0, 8.0]), pg("b", &[2.0, 7.0]), pg("c", &[3.0, 6.0]), pg("d", &[4.0, 5.0])];
+        let g = vec![
+            pg("a", &[1.0, 8.0]),
+            pg("b", &[2.0, 7.0]),
+            pg("c", &[3.0, 6.0]),
+            pg("d", &[4.0, 5.0]),
+        ];
         let mut shuffled = g.clone();
         shuffled.rotate_right(2);
         shuffled.swap(0, 3);
@@ -77,7 +86,13 @@ mod tests {
     fn trim_budget_too_large_fails_closed() {
         let g = vec![pg("a", &[1.0]), pg("b", &[2.0])];
         let err = aggregate(&g, 1, 64, b"s").unwrap_err();
-        assert_eq!(err, AggregateError::TrimBudgetTooLarge { trim: 1, bucket_count: 2 });
+        assert_eq!(
+            err,
+            AggregateError::TrimBudgetTooLarge {
+                trim: 1,
+                bucket_count: 2
+            }
+        );
     }
 
     #[test]
@@ -85,13 +100,19 @@ mod tests {
         let g = vec![pg("a", &[1.0, 2.0]), pg("b", &[1.0])];
         assert_eq!(
             aggregate(&g, 0, 64, b"s").unwrap_err(),
-            AggregateError::DimensionMismatch { expected: 2, found: 1 }
+            AggregateError::DimensionMismatch {
+                expected: 2,
+                found: 1
+            }
         );
     }
 
     #[test]
     fn empty_fails_closed() {
-        assert_eq!(aggregate(&[], 0, 4, b"s").unwrap_err(), AggregateError::Empty);
+        assert_eq!(
+            aggregate(&[], 0, 4, b"s").unwrap_err(),
+            AggregateError::Empty
+        );
     }
 
     #[test]
@@ -107,7 +128,10 @@ mod tests {
     struct Lcg(u64);
     impl Lcg {
         fn next(&mut self) -> u64 {
-            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             self.0 >> 16
         }
     }
@@ -136,7 +160,10 @@ mod tests {
             let r2 = aggregate(&g, trim, 64, b"sweep").expect("aggregate");
             assert_eq!(r1, r2);
             let agg = r1.aggregate[0].to_f32();
-            assert!((9.4..=10.6).contains(&agg), "round {round}: agg {agg} escaped honest band");
+            assert!(
+                (9.4..=10.6).contains(&agg),
+                "round {round}: agg {agg} escaped honest band"
+            );
         }
     }
 
@@ -154,8 +181,7 @@ mod tests {
         ];
         let r = aggregate(&g, 1, 64, b"frozen-seed-v1").expect("aggregate");
         assert_eq!(
-            r.digest,
-            "e79c5a6381c2e761f264d1c64dfdf12016c08ca3494ee909736ec84d00aa59a1",
+            r.digest, "e79c5a6381c2e761f264d1c64dfdf12016c08ca3494ee909736ec84d00aa59a1",
             "Q16 aggregation digest drifted post-adoption — the kernel re-export changed bytes"
         );
     }

@@ -24,7 +24,7 @@
 
 use nat_core::NatModel;
 use nat_eval::battery::PromptBattery;
-use nat_types::{Q16, ZoneId};
+use nat_types::{ZoneId, Q16};
 use sha2::{Digest, Sha256};
 
 // ---------------------------------------------------------------------------
@@ -106,11 +106,17 @@ impl ProbeLogits {
     /// Run `runner` over every prompt of `probe`.
     pub fn extract(runner: &dyn ProbeRunner, probe: &ProbeSet) -> Self {
         let logits = probe.prompts.iter().map(|p| runner.run(p)).collect();
-        ProbeLogits { probe_set_id: probe.id(), logits }
+        ProbeLogits {
+            probe_set_id: probe.id(),
+            logits,
+        }
     }
 
     pub fn dims(&self) -> (usize, usize) {
-        (self.logits.len(), self.logits.first().map(|r| r.len()).unwrap_or(0))
+        (
+            self.logits.len(),
+            self.logits.first().map(|r| r.len()).unwrap_or(0),
+        )
     }
 
     /// The **consensus-grade commitment**: quantize the logits onto the Q16 grid and
@@ -168,21 +174,33 @@ pub fn aggregate_probe_logits(
         .iter()
         .enumerate()
         .map(|(i, p)| {
-            let coords =
-                p.logits.iter().flatten().map(|&v| Q16::from_f32(v)).collect::<Vec<_>>();
+            let coords = p
+                .logits
+                .iter()
+                .flatten()
+                .map(|&v| Q16::from_f32(v))
+                .collect::<Vec<_>>();
             nat_aggregate::PseudoGradient::new(format!("peer{i}"), coords)
         })
         .collect();
 
-    let agg = nat_aggregate::aggregate(&grads, trim, buckets, seed)
-        .map_err(DistillError::Aggregate)?;
+    let agg =
+        nat_aggregate::aggregate(&grads, trim, buckets, seed).map_err(DistillError::Aggregate)?;
 
     // Reshape the flat aggregate back to [n][d].
     let mut logits = Vec::with_capacity(n);
     for r in 0..n {
-        logits.push(agg.aggregate[r * d..(r + 1) * d].iter().map(|q| q.to_f32()).collect());
+        logits.push(
+            agg.aggregate[r * d..(r + 1) * d]
+                .iter()
+                .map(|q| q.to_f32())
+                .collect(),
+        );
     }
-    Ok(ProbeLogits { probe_set_id: first.probe_set_id.clone(), logits })
+    Ok(ProbeLogits {
+        probe_set_id: first.probe_set_id.clone(),
+        logits,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +217,9 @@ pub struct Student {
 
 impl Student {
     pub fn from_logits(p: &ProbeLogits) -> Self {
-        Student { logits: p.logits.clone() }
+        Student {
+            logits: p.logits.clone(),
+        }
     }
 
     /// argmax prediction per prompt.
@@ -209,7 +229,12 @@ impl Student {
 
     /// Fraction of prompts whose argmax matches `labels`.
     pub fn accuracy(&self, labels: &[usize]) -> f32 {
-        let correct = self.predictions().iter().zip(labels).filter(|(p, l)| *p == *l).count();
+        let correct = self
+            .predictions()
+            .iter()
+            .zip(labels)
+            .filter(|(p, l)| *p == *l)
+            .count();
         correct as f32 / labels.len().max(1) as f32
     }
 }
@@ -436,7 +461,12 @@ mod tests {
     }
 
     fn expert(labels: &[usize], d: usize, noise: f32) -> Expert {
-        Expert { labels: labels.to_vec(), d, noise, idx: std::cell::Cell::new(0) }
+        Expert {
+            labels: labels.to_vec(),
+            d,
+            noise,
+            idx: std::cell::Cell::new(0),
+        }
     }
 
     // -- WP-A0 ------------------------------------------------------------
@@ -463,7 +493,7 @@ mod tests {
         let (n, d) = pl1.dims();
         assert_eq!(n, probe.len());
         assert_eq!(d, 8); // D_OUT
-        // The Q16 commitment is deterministic across extractions.
+                          // The Q16 commitment is deterministic across extractions.
         assert_eq!(pl1.digest(), pl2.digest());
     }
 
@@ -482,14 +512,28 @@ mod tests {
         // reversing peer order yields the same consensus (a function of the set)
         let mut rev = peers.clone();
         rev.reverse();
-        assert_eq!(a.digest(), aggregate_probe_logits(&rev, 1, 64, b"seed").unwrap().digest());
+        assert_eq!(
+            a.digest(),
+            aggregate_probe_logits(&rev, 1, 64, b"seed")
+                .unwrap()
+                .digest()
+        );
     }
 
     #[test]
     fn aggregation_rejects_probe_mismatch() {
-        let p1 = ProbeLogits { probe_set_id: "x".into(), logits: vec![vec![1.0, 2.0]] };
-        let p2 = ProbeLogits { probe_set_id: "y".into(), logits: vec![vec![1.0, 2.0]] };
-        assert_eq!(aggregate_probe_logits(&[p1, p2], 0, 4, b"s"), Err(DistillError::ProbeMismatch));
+        let p1 = ProbeLogits {
+            probe_set_id: "x".into(),
+            logits: vec![vec![1.0, 2.0]],
+        };
+        let p2 = ProbeLogits {
+            probe_set_id: "y".into(),
+            logits: vec![vec![1.0, 2.0]],
+        };
+        assert_eq!(
+            aggregate_probe_logits(&[p1, p2], 0, 4, b"s"),
+            Err(DistillError::ProbeMismatch)
+        );
     }
 
     // -- WP-A3: distillation transfers capability -------------------------
@@ -508,20 +552,33 @@ mod tests {
         // A weak student: confidently wrong (predicts class 0 everywhere).
         let weak = ProbeLogits {
             probe_set_id: probe.id(),
-            logits: probe.prompts.iter().map(|_| {
-                let mut v = vec![0.0f32; 8];
-                v[0] = 5.0;
-                v
-            }).collect(),
+            logits: probe
+                .prompts
+                .iter()
+                .map(|_| {
+                    let mut v = vec![0.0f32; 8];
+                    v[0] = 5.0;
+                    v
+                })
+                .collect(),
         };
         let mut student = Student::from_logits(&weak);
         let acc_before = student.accuracy(&labels);
         let (kl_before, kl_after) = distill(&mut student, &teacher, 2.0, 0.5, 300);
         let acc_after = student.accuracy(&labels);
 
-        assert!(kl_after < kl_before, "distillation reduced KL: {kl_before} -> {kl_after}");
-        assert!(acc_after > acc_before, "accuracy rose: {acc_before} -> {acc_after}");
-        assert!(acc_after >= 0.9, "student learned the teacher's capability: {acc_after}");
+        assert!(
+            kl_after < kl_before,
+            "distillation reduced KL: {kl_before} -> {kl_after}"
+        );
+        assert!(
+            acc_after > acc_before,
+            "accuracy rose: {acc_before} -> {acc_after}"
+        );
+        assert!(
+            acc_after >= 0.9,
+            "student learned the teacher's capability: {acc_after}"
+        );
     }
 
     // -- WP-A4: McNemar gate ----------------------------------------------
@@ -544,7 +601,7 @@ mod tests {
         let labels: Vec<usize> = vec![1; 13];
         let baseline: Vec<usize> = vec![0; 13];
         let candidate: Vec<usize> = vec![1; 13]; // significant improvement on eval…
-        // …but held-out accuracy regressed (0.70 < 0.80) -> blocked by the ratchet.
+                                                 // …but held-out accuracy regressed (0.70 < 0.80) -> blocked by the ratchet.
         let d = promotion_gate(&baseline, &candidate, &labels, 0.80, 0.70, 0.05);
         assert!(d.improved && d.p_value < 0.05);
         assert!(!d.no_regression);
@@ -600,7 +657,10 @@ mod tests {
                         v
                     })
                     .collect();
-                ProbeLogits { probe_set_id: "golden-probe-v1".into(), logits }
+                ProbeLogits {
+                    probe_set_id: "golden-probe-v1".into(),
+                    logits,
+                }
             })
             .collect()
     }
@@ -629,13 +689,17 @@ mod tests {
             match aggregate_probe_logits(&peers, 1, 64, &seed) {
                 Ok(first) => {
                     let again = aggregate_probe_logits(&peers, 1, 64, &seed).unwrap();
-                    assert_eq!(first.digest(), again.digest(), "non-determinism at round {round}");
+                    assert_eq!(
+                        first.digest(),
+                        again.digest(),
+                        "non-determinism at round {round}"
+                    );
                 }
                 // Fail-closed: a seed whose buckets collide below the trim budget is
                 // rejected (deterministically) rather than aggregated unsafely.
-                Err(DistillError::Aggregate(nat_aggregate::AggregateError::TrimBudgetTooLarge {
-                    ..
-                })) => continue,
+                Err(DistillError::Aggregate(
+                    nat_aggregate::AggregateError::TrimBudgetTooLarge { .. },
+                )) => continue,
                 Err(e) => panic!("unexpected aggregate error at round {round}: {e:?}"),
             }
         }
