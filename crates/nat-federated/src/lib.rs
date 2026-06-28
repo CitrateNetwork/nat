@@ -114,7 +114,13 @@ impl SignedContribution {
         let trace_hash = trace_hash.into();
         let msg = Self::signing_message(&node_id, &contribution, &manifest_hash, &trace_hash);
         let signature = signer.sign(&msg);
-        Self { node_id, contribution, manifest_hash, trace_hash, signature }
+        Self {
+            node_id,
+            contribution,
+            manifest_hash,
+            trace_hash,
+            signature,
+        }
     }
 
     /// Recompute the canonical signed message from this contribution's own fields.
@@ -201,7 +207,12 @@ pub fn gather_and_aggregate(
     let total_reward_weight = accepted.iter().map(|a| a.reward_weight).sum();
     let merged_hash = merge_trace_hashes(accepted.iter().map(|a| a.trace_hash.as_str()));
 
-    GatherResult { accepted, rejected, total_reward_weight, merged_hash }
+    GatherResult {
+        accepted,
+        rejected,
+        total_reward_weight,
+        merged_hash,
+    }
 }
 
 /// `H(sorted trace_hashes joined by '\n')`. Sorting makes the merge a function of
@@ -299,7 +310,10 @@ pub struct ToyKeyedSigner {
 
 impl ToyKeyedSigner {
     pub fn new(node_id: impl Into<String>, key: impl Into<Vec<u8>>) -> Self {
-        Self { node_id: node_id.into(), key: key.into() }
+        Self {
+            node_id: node_id.into(),
+            key: key.into(),
+        }
     }
 }
 

@@ -10,8 +10,10 @@
 version = 2
 yanked = "deny"
 ignore = [
-    # (none yet — add a RUSTSEC id + a one-line justification + REM tracker when
-    #  an advisory is reviewed and accepted.)
+    # paste: unmaintained (no successor needed). It is a compile-time-only proc-macro
+    # (token pasting) pulled transitively by candle / gemm; it emits no runtime code and
+    # has no known vulnerability — an "unmaintained" notice, not a security advisory.
+    "RUSTSEC-2024-0436",
 ]
 
 [licenses]
@@ -25,6 +27,7 @@ allow = [
     "MIT",
     "BSD-2-Clause",    # zerocopy
     "Unicode-3.0",     # unicode-ident
+    "ISC",             # libloading (candle-cuda's dynamic CUDA-library loader); permissive, OSI-approved
 ]
 
 [bans]

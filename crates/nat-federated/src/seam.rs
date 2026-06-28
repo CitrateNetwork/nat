@@ -29,7 +29,7 @@
 //!    inside RM-FL's stateful cycle.
 
 use crate::{FederationError, GatherResult, SignedContribution, Verifier};
-use nat_types::{Q16, ZoneId};
+use nat_types::{ZoneId, Q16};
 use sha2::{Digest, Sha256};
 
 /// An error at the seam boundary: an input that violates a binding's invariant
@@ -48,11 +48,18 @@ impl std::fmt::Display for SeamError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SeamError::NotALearnedZone(z) => {
-                write!(f, "seam: {} is not a learned zone (MX is the non-learned harness)", z.as_str())
+                write!(
+                    f,
+                    "seam: {} is not a learned zone (MX is the non-learned harness)",
+                    z.as_str()
+                )
             }
             SeamError::EmptyDelta => write!(f, "seam: empty zone-weight delta"),
             SeamError::DeltaDimensionMismatch { expected, found } => {
-                write!(f, "seam: delta dimension mismatch (expected {expected}, found {found})")
+                write!(
+                    f,
+                    "seam: delta dimension mismatch (expected {expected}, found {found})"
+                )
             }
         }
     }
@@ -96,7 +103,10 @@ pub struct AdapterTarget {
 impl AdapterTarget {
     pub fn new(lora_id: impl Into<String>, zone: ZoneId) -> Result<Self, SeamError> {
         if zone.is_learned() {
-            Ok(AdapterTarget { lora_id: lora_id.into(), zone })
+            Ok(AdapterTarget {
+                lora_id: lora_id.into(),
+                zone,
+            })
         } else {
             Err(SeamError::NotALearnedZone(zone))
         }
@@ -162,7 +172,10 @@ impl ZoneWeightDelta {
 /// heterogeneous validators. Implementations aggregate coordinate-wise over a set
 /// of same-dimension deltas for one zone and return the aggregated delta.
 pub trait BelnapZoneAggregator {
-    fn aggregate_zone_deltas(&self, deltas: &[ZoneWeightDelta]) -> Result<ZoneWeightDelta, SeamError>;
+    fn aggregate_zone_deltas(
+        &self,
+        deltas: &[ZoneWeightDelta],
+    ) -> Result<ZoneWeightDelta, SeamError>;
 }
 
 /// Validate that a set of zone-weight deltas can be coordinate-wise reduced: at
@@ -173,7 +186,10 @@ pub fn check_aggregable(deltas: &[ZoneWeightDelta]) -> Result<(ZoneId, usize), S
     let dim = first.dim();
     for d in deltas {
         if d.dim() != dim {
-            return Err(SeamError::DeltaDimensionMismatch { expected: dim, found: d.dim() });
+            return Err(SeamError::DeltaDimensionMismatch {
+                expected: dim,
+                found: d.dim(),
+            });
         }
         if d.zone != first.zone {
             // Cross-zone mixing is a caller error; the harness aggregates per zone.
@@ -258,7 +274,10 @@ impl SettlementRow {
 
     /// The on-chain `recordContribution` call shape for this row.
     pub fn to_ledger_record(&self) -> LedgerRecord {
-        LedgerRecord { compute_metered: self.compute_units(), data_quality_bps: self.data_quality_bps() }
+        LedgerRecord {
+            compute_metered: self.compute_units(),
+            data_quality_bps: self.data_quality_bps(),
+        }
     }
 
     /// A **bit-exact Rust replica of `PatronageLedger.recordContribution`'s** unit
@@ -267,7 +286,8 @@ impl SettlementRow {
     /// the live chain call exists (the Gate-4 adapter only relays; the math is here).
     pub fn patronage_units(&self, w_compute_bps: u32, w_data_bps: u32) -> u128 {
         let weighted_compute = self.compute_units() * w_compute_bps as u128 / BPS_SCALE as u128;
-        let weighted_quality = self.data_quality_bps() as u128 * w_data_bps as u128 / BPS_SCALE as u128;
+        let weighted_quality =
+            self.data_quality_bps() as u128 * w_data_bps as u128 / BPS_SCALE as u128;
         weighted_compute * weighted_quality / BPS_SCALE as u128
     }
 }
@@ -377,7 +397,10 @@ mod tests {
         for z in ZoneId::LEARNED {
             assert!(RoutingTarget::new(z).is_ok());
         }
-        assert_eq!(RoutingTarget::new(ZoneId::MX), Err(SeamError::NotALearnedZone(ZoneId::MX)));
+        assert_eq!(
+            RoutingTarget::new(ZoneId::MX),
+            Err(SeamError::NotALearnedZone(ZoneId::MX))
+        );
     }
 
     #[test]
@@ -392,8 +415,14 @@ mod tests {
     #[test]
     fn zone_weight_delta_rejects_mx_and_empty() {
         assert!(ZoneWeightDelta::new(ZoneId::SM, vec![Q16::ONE, Q16::ZERO]).is_ok());
-        assert_eq!(ZoneWeightDelta::new(ZoneId::MX, vec![Q16::ONE]), Err(SeamError::NotALearnedZone(ZoneId::MX)));
-        assert_eq!(ZoneWeightDelta::new(ZoneId::SM, vec![]), Err(SeamError::EmptyDelta));
+        assert_eq!(
+            ZoneWeightDelta::new(ZoneId::MX, vec![Q16::ONE]),
+            Err(SeamError::NotALearnedZone(ZoneId::MX))
+        );
+        assert_eq!(
+            ZoneWeightDelta::new(ZoneId::SM, vec![]),
+            Err(SeamError::EmptyDelta)
+        );
     }
 
     #[test]
@@ -405,7 +434,10 @@ mod tests {
         let short = ZoneWeightDelta::new(ZoneId::CB, vec![Q16::ONE]).unwrap();
         assert!(matches!(
             check_aggregable(&[a, short]),
-            Err(SeamError::DeltaDimensionMismatch { expected: 2, found: 1 })
+            Err(SeamError::DeltaDimensionMismatch {
+                expected: 2,
+                found: 1
+            })
         ));
         assert_eq!(check_aggregable(&[]), Err(SeamError::EmptyDelta));
     }
@@ -525,12 +557,19 @@ mod tests {
 
             // Build settlement rows straight from the signed contributions (both
             // factors preserved — no information dropped through the gather).
-            let rows: Vec<SettlementRow> =
-                contribs.iter().map(|c| SettlementRow::from_signed(c, Some(ZoneId::PF))).collect();
+            let rows: Vec<SettlementRow> = contribs
+                .iter()
+                .map(|c| SettlementRow::from_signed(c, Some(ZoneId::PF)))
+                .collect();
 
             // (1) CONSERVATION: the seam neither loses nor creates reward weight.
-            let row_total: Q16 = rows.iter().fold(Q16::ZERO, |acc, r| acc.add(r.reward_weight()));
-            assert_eq!(row_total, result.total_reward_weight, "round conserved total");
+            let row_total: Q16 = rows
+                .iter()
+                .fold(Q16::ZERO, |acc, r| acc.add(r.reward_weight()));
+            assert_eq!(
+                row_total, result.total_reward_weight,
+                "round conserved total"
+            );
 
             // (2) data_quality is carried SEPARATELY (not pre-collapsed into the product).
             for r in &rows {
@@ -560,8 +599,18 @@ mod tests {
             .with_node("a", b"key-a".to_vec())
             .with_node("b", b"key-b".to_vec());
         let cs = vec![
-            SignedContribution::create(&ToyKeyedSigner::new("a", b"key-a".to_vec()), contrib(4.0, 0.5, "pa"), "ma", "ta"),
-            SignedContribution::create(&ToyKeyedSigner::new("b", b"key-b".to_vec()), contrib(2.0, 1.0, "pb"), "mb", "tb"),
+            SignedContribution::create(
+                &ToyKeyedSigner::new("a", b"key-a".to_vec()),
+                contrib(4.0, 0.5, "pa"),
+                "ma",
+                "ta",
+            ),
+            SignedContribution::create(
+                &ToyKeyedSigner::new("b", b"key-b".to_vec()),
+                contrib(2.0, 1.0, "pb"),
+                "mb",
+                "tb",
+            ),
         ];
 
         let orch = RefOrchestrator;

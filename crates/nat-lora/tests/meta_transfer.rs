@@ -34,11 +34,11 @@ const N_PROBE: usize = 24;
 // ---- fixed world (seeded once) --------------------------------------------
 
 struct World {
-    h: Vec<Vec<f32>>,           // probe hiddens [N_PROBE][D_IN]
-    w0: Vec<Vec<f32>>,          // base readout [D_OUT][D_IN]
-    atoms: Vec<SkillAtom>,      // K skill atoms (u⊗v) — the decision dictionary
-    base_ffn: Vec<Vec<f32>>,    // peer ffn_down base [D_OUT][D_IN]
-    pert: Vec<Vec<Vec<f32>>>,   // K perturbation matrices [D_OUT][D_IN] encoding φ in weights
+    h: Vec<Vec<f32>>,         // probe hiddens [N_PROBE][D_IN]
+    w0: Vec<Vec<f32>>,        // base readout [D_OUT][D_IN]
+    atoms: Vec<SkillAtom>,    // K skill atoms (u⊗v) — the decision dictionary
+    base_ffn: Vec<Vec<f32>>,  // peer ffn_down base [D_OUT][D_IN]
+    pert: Vec<Vec<Vec<f32>>>, // K perturbation matrices [D_OUT][D_IN] encoding φ in weights
     fixed: TransformerBlockTmpl,
 }
 
@@ -51,7 +51,9 @@ struct TransformerBlockTmpl {
 }
 
 fn mat(rng: &mut SeededRng, r: usize, c: usize, scale: f32) -> Vec<Vec<f32>> {
-    (0..r).map(|_| (0..c).map(|_| rng.next_f32() * scale).collect()).collect()
+    (0..r)
+        .map(|_| (0..c).map(|_| rng.next_f32() * scale).collect())
+        .collect()
 }
 
 fn build_world() -> World {
@@ -59,7 +61,10 @@ fn build_world() -> World {
     let h = mat(&mut rng, N_PROBE, D_IN, 1.0);
     let w0 = mat(&mut rng, D_OUT, D_IN, 0.25); // weak base readout
     let atoms: Vec<SkillAtom> = (0..K)
-        .map(|_| SkillAtom { u: mat(&mut rng, 1, D_OUT, 1.0).remove(0), v: mat(&mut rng, 1, D_IN, 1.0).remove(0) })
+        .map(|_| SkillAtom {
+            u: mat(&mut rng, 1, D_OUT, 1.0).remove(0),
+            v: mat(&mut rng, 1, D_IN, 1.0).remove(0),
+        })
         .collect();
     let base_ffn = mat(&mut rng, D_OUT, D_IN, 1.0);
     let pert: Vec<Vec<Vec<f32>>> = (0..K).map(|_| mat(&mut rng, D_OUT, D_IN, 1.0)).collect();
@@ -70,7 +75,14 @@ fn build_world() -> World {
         wo: Linear::new(mat(&mut rng, D_IN, D_IN, 1.0), vec![0.0; D_IN]),
         ffn_up: Linear::new(mat(&mut rng, 2 * D_IN, D_IN, 1.0), vec![0.0; 2 * D_IN]),
     };
-    World { h, w0, atoms, base_ffn, pert, fixed }
+    World {
+        h,
+        w0,
+        atoms,
+        base_ffn,
+        pert,
+        fixed,
+    }
 }
 
 // T_p = W0 + Σ φ_k (u_k ⊗ v_k) — the peer's readout (its decisions).
@@ -108,7 +120,10 @@ fn peer_transformer_graph(w: &World, phi: &[f32]) -> WeightGraph {
         ffn_up: w.fixed.ffn_up.clone(),
         ffn_down: Linear::new(peer_ffn_down(w, phi), vec![0.0; D_OUT]),
     };
-    lower_transformer(&TransformerCheckpoint { d_model: D_IN, blocks: vec![block] })
+    lower_transformer(&TransformerCheckpoint {
+        d_model: D_IN,
+        blocks: vec![block],
+    })
 }
 
 fn peer_nat_graph(w: &World, phi: &[f32]) -> WeightGraph {
@@ -135,13 +150,20 @@ fn peer_nat_graph(w: &World, phi: &[f32]) -> WeightGraph {
         };
         zone_weights.push((zd.id, zw));
     }
-    lower_nat(&NatCheckpoint { sidecar, zone_weights })
+    lower_nat(&NatCheckpoint {
+        sidecar,
+        zone_weights,
+    })
 }
 
 fn sample_phis(seed: u64, n: usize) -> Vec<Vec<f32>> {
     let mut rng = SeededRng::new(seed);
     (0..n)
-        .map(|_| (0..K).map(|_| 0.2 + 0.8 * (rng.next_f32() * 0.5 + 0.5)).collect()) // [0.2,1.0]
+        .map(|_| {
+            (0..K)
+                .map(|_| 0.2 + 0.8 * (rng.next_f32() * 0.5 + 0.5))
+                .collect()
+        }) // [0.2,1.0]
         .collect()
 }
 
@@ -174,8 +196,10 @@ fn run(world: &World, build: &dyn Fn(&World, &[f32]) -> WeightGraph) -> Result {
     let test_phis = sample_phis(0x2222, 24);
 
     // meta-train: peer latents → target gains (= φ).
-    let train_latents: Vec<Vec<f32>> =
-        train_phis.iter().map(|p| condition(&enc, &build(world, p))).collect();
+    let train_latents: Vec<Vec<f32>> = train_phis
+        .iter()
+        .map(|p| condition(&enc, &build(world, p)))
+        .collect();
     let mut gen = LoraGenerator::new(ZoneId::PF, world.atoms.clone(), LATENT);
     gen.fit(&train_latents, &train_phis, 1e-2);
 
@@ -203,22 +227,49 @@ fn run(world: &World, build: &dyn Fn(&World, &[f32]) -> WeightGraph) -> Result {
         py.extend(labels);
     }
     let n = test_phis.len() as f32;
-    Result { base: sb / n, lora: sl / n, shuffled: ss / n, pooled_base: pb, pooled_lora: pl, pooled_labels: py }
+    Result {
+        base: sb / n,
+        lora: sl / n,
+        shuffled: ss / n,
+        pooled_base: pb,
+        pooled_lora: pl,
+        pooled_labels: py,
+    }
 }
 
 #[test]
 fn weight_conditioned_generation_transfers_to_held_out_peers_transformer() {
     let world = build_world();
     let r = run(&world, &peer_transformer_graph);
-    eprintln!("[transformer] base={:.3} lora={:.3} shuffled={:.3}", r.base, r.lora, r.shuffled);
+    eprintln!(
+        "[transformer] base={:.3} lora={:.3} shuffled={:.3}",
+        r.base, r.lora, r.shuffled
+    );
 
     // the generated LoRA installs the peer's capability on held-out peers…
-    assert!(r.lora > r.base + 0.25, "no transfer: base={} lora={}", r.base, r.lora);
+    assert!(
+        r.lora > r.base + 0.25,
+        "no transfer: base={} lora={}",
+        r.base,
+        r.lora
+    );
     // …and meaningfully beats the shuffled-latent control (the conditioning matters).
-    assert!(r.lora > r.shuffled + 0.20, "ablation failed: lora={} shuffled={}", r.lora, r.shuffled);
+    assert!(
+        r.lora > r.shuffled + 0.20,
+        "ablation failed: lora={} shuffled={}",
+        r.lora,
+        r.shuffled
+    );
 
     // WP-G4 — the McNemar promotion gate accepts it (pooled over held-out peers).
-    let d = promotion_gate(&r.pooled_base, &r.pooled_lora, &r.pooled_labels, r.base, r.lora, 0.05);
+    let d = promotion_gate(
+        &r.pooled_base,
+        &r.pooled_lora,
+        &r.pooled_labels,
+        r.base,
+        r.lora,
+        0.05,
+    );
     assert!(d.promote, "promotion gate should accept: {d:?}");
     assert!(d.p_value < 0.05 && d.improved && d.no_regression);
 }
@@ -228,9 +279,22 @@ fn weight_conditioned_generation_transfers_on_nat_graph_peers() {
     // cross-arch: the same pipeline on NAT-graph peers (g-g3 "both archs").
     let world = build_world();
     let r = run(&world, &peer_nat_graph);
-    eprintln!("[nat] base={:.3} lora={:.3} shuffled={:.3}", r.base, r.lora, r.shuffled);
-    assert!(r.lora > r.base + 0.25, "no NAT transfer: base={} lora={}", r.base, r.lora);
-    assert!(r.lora > r.shuffled + 0.15, "NAT ablation failed: lora={} shuffled={}", r.lora, r.shuffled);
+    eprintln!(
+        "[nat] base={:.3} lora={:.3} shuffled={:.3}",
+        r.base, r.lora, r.shuffled
+    );
+    assert!(
+        r.lora > r.base + 0.25,
+        "no NAT transfer: base={} lora={}",
+        r.base,
+        r.lora
+    );
+    assert!(
+        r.lora > r.shuffled + 0.15,
+        "NAT ablation failed: lora={} shuffled={}",
+        r.lora,
+        r.shuffled
+    );
 }
 
 #[test]
@@ -242,8 +306,10 @@ fn shuffled_control_does_not_promote() {
     // build pooled shuffled preds by re-running the shuffled path
     let enc = GmnEncoder::new(LATENT, 3, 0xE0C);
     let train_phis = sample_phis(0x1111, 80);
-    let train_latents: Vec<Vec<f32>> =
-        train_phis.iter().map(|p| condition(&enc, &peer_transformer_graph(&world, p))).collect();
+    let train_latents: Vec<Vec<f32>> = train_phis
+        .iter()
+        .map(|p| condition(&enc, &peer_transformer_graph(&world, p)))
+        .collect();
     let mut gen = LoraGenerator::new(ZoneId::PF, world.atoms.clone(), LATENT);
     gen.fit(&train_latents, &train_phis, 1e-2);
 
