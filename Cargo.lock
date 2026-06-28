@@ -753,6 +753,7 @@ dependencies = [
 name = "nat-federated"
 version = "0.0.1"
 dependencies = [
+ "citrate-fed-types",
  "nat-train",
  "nat-types",
  "sha2",
@@ -762,11 +763,11 @@ dependencies = [
 name = "nat-lora"
 version = "0.0.1"
 dependencies = [
+ "citrate-fed-types",
  "nat-distill",
  "nat-sidecar",
  "nat-types",
  "nat-weightspace",
- "sha2",
 ]
 
 [[package]]

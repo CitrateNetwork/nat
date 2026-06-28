@@ -10,10 +10,10 @@ publish.workspace = true
 description = "Weight-conditioned LoRA generator (WS-3, frontier bet #3): a hypernetwork that reads a peer model's GMN weight-space latent (nat-weightspace) and emits a low-rank adapter installing the peer's capability — meta-trained, held-out-generalizing, McNemar-verified (nat-distill), Q16-committed for LoRAFactory registration."
 
 [dependencies]
+citrate-fed-types.workspace = true
 nat-types.workspace = true
 nat-weightspace.workspace = true
 nat-distill.workspace = true
-sha2.workspace = true
 
 [dev-dependencies]
 nat-sidecar.workspace = true
