@@ -1,12 +1,14 @@
 //! Shared primitives for NAT.
 //!
-//! This crate has no internal dependencies on purpose: every other crate can
+//! This crate has no internal *nat* dependencies on purpose: every other crate can
 //! depend on it without creating a cycle. It owns the vocabulary that the
 //! Architecture spec §3 makes normative — `ZoneId`, `CoreType`, `ZoneStatus` —
-//! and the [`Q16`] fixed-point type that the deterministic merge path runs on.
+//! and re-exports the [`Q16`] fixed-point type from the shared `citrate-fed-types`
+//! boundary kernel (Gate-4 WP-W0), so NAT and the chain run the *same* Q16 grid by
+//! construction (one source of truth; the deterministic merge path is unchanged —
+//! the kernel's `Q16` is the byte-identical extraction of what lived here).
 
-mod fixed;
-pub use fixed::Q16;
+pub use citrate_fed_types::Q16;
 
 use serde::{Deserialize, Serialize};
 
