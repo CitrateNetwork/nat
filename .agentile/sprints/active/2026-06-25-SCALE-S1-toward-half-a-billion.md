@@ -65,7 +65,7 @@ both. Ordered within each by dependency.
 | WP | Subject | Acceptance | Status |
 |----|---------|-----------|--------|
 | WP-S9 | **corpus-v5 + BPE-16k** | 5–10× the volume haul folded through the pipeline; fresh BPE-16k; manifest + quality recorded | ✅ **done (2026-06-25)** — 1500 PD Gutenberg books + v3/v4 pillars → **392,499 docs / 167.2M tokens (5.4× v4) / quality 0.857**, 7,316 quarantined (dedup+PII, 0 license). **BPE-16384 @ 2.53 bytes/tok ≈ 383M BPE tokens.** `scripts/build-corpus-v5.sh`. Unblocks 16M→32M rungs; 64M wants corpus-v6. NOT yet durably stored (WP-S8 open). |
-| WP-S10 | **Ladder rungs 16M → 32M → 64M** | param-matched NAT vs dense at each, on corpus-v5, held-out bits/byte, gap reported per rung (honest: narrowing = report it) | ☐ |
+| WP-S10 | **Ladder rungs 16M → 32M → 64M** | param-matched NAT vs dense at each, on corpus-v5, held-out bits/byte, gap reported per rung (honest: narrowing = report it) | 🟡 **16M+32M done (2026-06-27)** — both HOLD 3/3. 16M (f32) gap **0.191**, 32M (bf16) gap **0.176** → **flat/slightly narrowing, NOT widening** (corpus-v4 widened; BPE-16k embedding-dominated → flatter per-total-param gap; the −0.015 is confounded by the f32→bf16 change + 3-seed noise — re-run 16M in bf16 for a clean read). 64M wants corpus-v6. |
 | WP-S11 | **Eval battery beyond bits/byte** | domain-split held-out perplexity + a few small downstream tasks; a capability read that isn't just LM loss | ☐ |
 | WP-S12 | **The 500M run: 128M → 256M → 512M** | each rung param-matched (sampled seeds at the top to bound compute), checkpointed, gap holding; `g3b` exit | ☐ (north star) |
 

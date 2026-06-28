@@ -134,6 +134,26 @@ H-01/H-02 read updates the next day's intent.
 
 > Hermes appends here (or in the Logseq daily journal). Newest at the top.
 
+### 2026-06-27 — 32M rung (bf16) on corpus-v5 HOLDS 3/3; the gap is FLAT here, not widening (Claude, manual)
+- **H-01 32M on corpus-v5 (BPE-16384, candle-cuda, **bf16**, 3 seeds):** NAT 5-zone d=704
+  (32,022,343) vs param-matched dense (32,023,046). **HOLDS 3/3** — NAT 1.924–1.928 vs dense
+  2.098–2.105 b/byte; mean cap/param NAT 9.29e-9 > dense 8.51e-9. bf16 ran clean end-to-end at
+  true 32M params (the d-cap fix worked: d=704, not capped at 512).
+- **The corpus-v5 ladder so far (within-rung gap):** 16M **0.191** (f32) → 32M **0.176** (bf16).
+  **The gap is roughly FLAT/slightly narrowing here — it did NOT widen as the corpus-v4/BPE-4096
+  ladder did (0.188 → 0.251).** Honest read: the bet HOLDS cleanly at both rungs (3/3 each, gap
+  still ~0.18), but "widens with scale" is **corpus/vocab-dependent, not universal.** At BPE-16384
+  the embedding+readout dominate the param budget, so the partitioned cores are a *smaller* fraction
+  of total params than at BPE-4096 → a flatter per-total-param gap is expected.
+- **CONFOUND (don't over-read the −0.015):** the 16M rung was **f32**, the 32M rung **bf16** — the
+  precision change between rungs muddies a clean within-recipe scale read, and ±0.015 is within
+  plausible 3-seed noise. **To get a clean 16M→32M read, re-run 16M in bf16** (same precision); only
+  then is the flat-vs-narrowing call rigorous.
+- **bf16 win confirmed at production scale:** the 32M run used the validated bf16 path (1.75× faster
+  than f32 would have been) with no instability — the throughput work paid off on the real rung.
+- **Next:** (optional) 16M-bf16 for a clean ladder; 64M wants corpus-v6 (Wikipedia, WP-S6); the
+  honest scale story is now "HOLDS through 32M, gap ~0.18, no clear widening at BPE-16k."
+
 ### 2026-06-26 — 16M rung on corpus-v5 HOLDS 3/3; bf16 path built for the throughput wall (Claude, manual)
 - **H-01 16M on corpus-v5 (BPE-16384, candle-cuda, 3 seeds):** NAT 5-zone d=400 (16,012,791)
   vs param-matched dense (16,013,190). **HOLDS 3/3** — NAT 1.948–1.958 vs dense 2.141–2.147
