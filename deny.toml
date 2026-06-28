@@ -38,3 +38,7 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# The audited deterministic boundary kernel (Gate-4 WP-W0) is the one allowed git
+# dependency — a CitrateNetwork-owned, rev-pinned, BUSL-licensed internal crate.
+[sources.allow-org]
+github = ["CitrateNetwork"]
