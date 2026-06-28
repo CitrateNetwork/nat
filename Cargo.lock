@@ -717,6 +717,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "nat-distill"
+version = "0.0.1"
+dependencies = [
+ "nat-aggregate",
+ "nat-core",
+ "nat-eval",
+ "nat-types",
+ "sha2",
+]
+
+[[package]]
 name = "nat-eval"
 version = "0.0.1"
 dependencies = [
