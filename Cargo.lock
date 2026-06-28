@@ -158,6 +158,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "citrate-fed-types"
+version = "0.1.0"
+source = "git+https://github.com/CitrateNetwork/citrate-fed-types.git?rev=b67660d4d99fd63cee89e61a5762ee43b007dfb7#b67660d4d99fd63cee89e61a5762ee43b007dfb7"
+dependencies = [
+ "serde",
+ "sha2",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -675,6 +684,7 @@ dependencies = [
 name = "nat-aggregate"
 version = "0.0.1"
 dependencies = [
+ "citrate-fed-types",
  "nat-types",
  "sha2",
 ]
@@ -803,6 +813,7 @@ dependencies = [
 name = "nat-types"
 version = "0.0.1"
 dependencies = [
+ "citrate-fed-types",
  "serde",
  "serde_json",
 ]
