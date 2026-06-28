@@ -19,6 +19,12 @@ use citrate_fed_types::lora::{lora_commitment as kernel_lora_commitment, LoraFac
 /// *same code*. The kernel preserves the original domain (`nat-lora-commit-v1`) and
 /// serialization, so the committed bytes are byte-identical — the frozen `bd08b278…` test
 /// below is the regression guard.
+///
+/// The kernel's `lora_commitment` is fail-closed (returns `Err` on shape-malformed factors,
+/// Tier-1 finding H1). A [`LoraAdapter`] is shape-consistent by construction (the generator
+/// builds `matrix_a` as `[rank][dim_in]` and `matrix_b` as `[dim_out][rank]`), so the
+/// `expect` asserts that local invariant — it is not reachable from untrusted input (that
+/// path is the chain calling the kernel directly).
 pub fn lora_commitment(a: &LoraAdapter) -> String {
     kernel_lora_commitment(&LoraFactors {
         zone_tag: a.zone as u8,
@@ -29,6 +35,7 @@ pub fn lora_commitment(a: &LoraAdapter) -> String {
         matrix_a: a.matrix_a.clone(),
         matrix_b: a.matrix_b.clone(),
     })
+    .expect("LoraAdapter invariant: matrices match declared rank/dim_out/dim_in")
 }
 
 #[cfg(test)]
