@@ -49,6 +49,11 @@ repository = "https://github.com/CitrateNetwork/nat"
 publish = false
 
 [workspace.dependencies]
+# The audited deterministic boundary kernel (Gate-4 WP-W0) — the single source of truth
+# for Q16, the aggregation reduction + digest, the patronage math, and the LoRA commitment,
+# shared with citrate-chain. Rev-pinned: a frozen kernel, not a moving branch.
+citrate-fed-types = { git = "https://github.com/CitrateNetwork/citrate-fed-types.git", rev = "b67660d4d99fd63cee89e61a5762ee43b007dfb7" }
+
 # serialization — struct field order is deterministic, which the trace hash relies on.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

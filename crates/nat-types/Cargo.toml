@@ -7,9 +7,10 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 publish.workspace = true
-description = "Shared primitives for NAT: ZoneId, CoreType, Status, and the Q16.16 deterministic fixed-point type."
+description = "Shared primitives for NAT: ZoneId, CoreType, Status, and the Q16.16 deterministic fixed-point type (re-exported from the citrate-fed-types boundary kernel)."
 
 [dependencies]
+citrate-fed-types.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

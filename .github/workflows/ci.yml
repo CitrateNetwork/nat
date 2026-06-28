@@ -11,12 +11,25 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  # cargo's libgit2 backend ignores the deploy-key ssh config; force it to shell out to
+  # system git so the citrate-fed-types kernel (a private git dep) fetches with the key.
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to citrate-fed-types (private kernel)
+        env:
+          FED_TYPES_DEPLOY_KEY: ${{ secrets.FED_TYPES_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$FED_TYPES_DEPLOY_KEY" > ~/.ssh/fed_types_ro
+          chmod 600 ~/.ssh/fed_types_ro
+          printf 'Host github.com\n  IdentityFile ~/.ssh/fed_types_ro\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git config --global url."git@github.com:".insteadOf "https://github.com/"
       - name: Toolchain (pinned via rust-toolchain.toml)
         run: rustup show
       - name: Format
@@ -30,6 +43,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Authenticate to citrate-fed-types (private kernel)
+        env:
+          FED_TYPES_DEPLOY_KEY: ${{ secrets.FED_TYPES_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$FED_TYPES_DEPLOY_KEY" > ~/.ssh/fed_types_ro
+          chmod 600 ~/.ssh/fed_types_ro
+          printf 'Host github.com\n  IdentityFile ~/.ssh/fed_types_ro\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          git config --global url."git@github.com:".insteadOf "https://github.com/"
       # Install cargo-deny from crates.io rather than a marketplace action, so CI
       # depends only on GitHub-owned actions (actions/checkout) — no third-party
       # action allowlist needed, which keeps the Actions policy locked down.

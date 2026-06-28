@@ -12,3 +12,9 @@
 # and break that. x86_64 builds (incl. the Docker CI image) are unaffected.
 [target.aarch64-unknown-linux-gnu]
 rustflags = ["-C", "target-feature=+fp16"]
+
+# Fetch private git dependencies (the `citrate-fed-types` boundary kernel) through the
+# system git, so an authenticated credential helper / CI deploy key is used. Without this
+# cargo's built-in fetcher cannot read the private CitrateNetwork repo.
+[net]
+git-fetch-with-cli = true
