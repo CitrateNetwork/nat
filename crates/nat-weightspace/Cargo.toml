@@ -1,0 +1,15 @@
+[package]
+name = "nat-weightspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "GMN weight-space encoder (WS-2 Layer B): one permutation-equivariant graph type spanning NAT zones + transformer blocks, an untrained GMN encoder that diagnoses weight-space properties cross-arch, and a consensus-grade WL canonical weight commitment (Q16, frozen bytes, tamper-detecting)."
+
+[dependencies]
+nat-types.workspace = true
+nat-sidecar.workspace = true
+sha2.workspace = true
