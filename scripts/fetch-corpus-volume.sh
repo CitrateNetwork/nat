@@ -34,8 +34,17 @@ count=0
 url="https://gutendex.com/books?languages=en&copyright=false&sort=popular"
 
 while [ -n "$url" ] && [ "$url" != "null" ] && [ "$count" -lt "$MAX_BOOKS" ]; do
-  page="$(curl -sL --max-time 40 "$url" || true)"
-  [ -z "$page" ] && { echo "   !! gutendex page fetch failed; stopping"; break; }
+  # A 15k-book sweep is ~470 catalogue pages; one transient failure or rate-limit
+  # must not end the run. Retry with exponential backoff, then politeness-pause
+  # between pages so we don't trip Gutendex's limiter in the first place.
+  page=""
+  for attempt in 1 2 3 4 5 6; do
+    page="$(curl -sfL --max-time 40 "$url" || true)"
+    [ -n "$page" ] && break
+    echo "   .. gutendex page fetch failed (attempt $attempt/6); backing off"
+    sleep $((attempt * attempt * 2))
+  done
+  [ -z "$page" ] && { echo "   !! gutendex page fetch failed after 6 retries; stopping"; break; }
 
   # Emit "id<TAB>plain-text-url" for each PD book on this page that has a usable
   # .txt format (prefer utf-8; skip zip-only).
@@ -70,6 +79,7 @@ for b in d.get("results", []):
   done <<< "$rows"
 
   url="$(printf '%s' "$page" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("next") or "")' 2>/dev/null || true)"
+  sleep 1
 done
 
 docs=$(wc -l < "$JSONL" 2>/dev/null || echo 0)
