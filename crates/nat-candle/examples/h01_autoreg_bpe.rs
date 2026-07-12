@@ -90,7 +90,14 @@ fn main() {
     // corpus, or the bigger model starves and overfits (the whole point of corpus-v4).
     let max_windows: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(30_000);
     let n_seeds: u64 = args.next().and_then(|s| s.parse().ok()).unwrap_or(5);
-    let seeds: Vec<u64> = (1..=n_seeds).collect();
+    // Crash recovery (WP-S1 interim): the ladder path has no checkpoint/resume, so a
+    // killed run loses every unfinished seed. NAT_SEED_START lets a re-launch skip
+    // seeds whose rows already landed in the log instead of re-burning days of GPU.
+    let seed_start: u64 = std::env::var("NAT_SEED_START")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+    let seeds: Vec<u64> = (seed_start..=n_seeds).collect();
     // Both arms share the same dtype (ADR-0005). NAT_DTYPE=bf16 enables the
     // mixed-precision throughput path (SCALE-S1 WP-S2); default f32.
     let dtype = match std::env::var("NAT_DTYPE").as_deref() {
