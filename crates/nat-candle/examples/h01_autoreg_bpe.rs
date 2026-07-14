@@ -164,17 +164,46 @@ fn main() {
     let (mut nat_cpps, mut dense_cpps) = (Vec::new(), Vec::new());
     let mut holds = 0usize;
 
+    // NAT_CKPT_DIR (WP-S1): when set, both arms train through the checkpointed loop
+    // (identical math, per-epoch model.safetensors+meta.json under <dir>/<arm>-seed<N>)
+    // so a host reboot mid-rung loses at most one epoch, not a 40h+ arm. Unset → the
+    // original in-memory path, byte-identical behavior to every prior ladder run.
+    let ckpt_root = std::env::var("NAT_CKPT_DIR").ok().map(std::path::PathBuf::from);
+
     for &seed in &seeds {
         let mut nat = AutoregLm::new_with_dtype(&nat_cfg(d, vocab, seed), dtype).unwrap();
-        nat.train_minibatched(&xtr, EPOCHS, BATCH, LR, seed)
-            .unwrap();
+        match &ckpt_root {
+            Some(root) => nat
+                .train_minibatched_checkpointed(
+                    &xtr,
+                    EPOCHS,
+                    BATCH,
+                    LR,
+                    seed,
+                    &root.join(format!("nat-seed{seed}")),
+                )
+                .unwrap(),
+            None => nat.train_minibatched(&xtr, EPOCHS, BATCH, LR, seed).unwrap(),
+        }
         let nat_loss = nat.loss_on_batched(&xva, BATCH).unwrap();
 
         let mut dense =
             AutoregDenseLm::new_with_dtype(vocab, SEQ_LEN, d, d_ff, seed, dtype).unwrap();
-        dense
-            .train_minibatched(&xtr, EPOCHS, BATCH, LR, seed)
-            .unwrap();
+        match &ckpt_root {
+            Some(root) => dense
+                .train_minibatched_checkpointed(
+                    &xtr,
+                    EPOCHS,
+                    BATCH,
+                    LR,
+                    seed,
+                    &root.join(format!("dense-seed{seed}")),
+                )
+                .unwrap(),
+            None => dense
+                .train_minibatched(&xtr, EPOCHS, BATCH, LR, seed)
+                .unwrap(),
+        }
         let dense_loss = dense.loss_on_batched(&xva, BATCH).unwrap();
 
         nat_cpps.push(cap_per_param(nat_loss, nat_p));
