@@ -124,7 +124,7 @@ science, build the process so its claims are checkable against artifacts, and at
   fairness protocol, and the honest-posture constraint were human. The agents executed extraordinarily
   capably *within* that frame; they did not set the frame. Calling this "agents doing science" without
   that qualifier would be the exact kind of overclaim the rest of this document warns against.
-- **Single operator, single machine, small scale.** One person, one GB10, ~20K–115K-parameter
+- **Single operator, single machine, small scale.** One person, one GB10, ≤2M-parameter
   models, a bespoke corpus, no external replication. The reproducibility floor exists to make
   replication cheap; it has not yet happened.
 - **The failure modes are real and recurring.** The over/under-claim drift (§5) is not a one-off; it

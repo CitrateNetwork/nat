@@ -17,11 +17,11 @@ structure and read three properties off it.
 
 We hold the results to their limits.
 
-- **Scale.** Every quantitative result is at small scale: ~20K–115K parameters, three to five
-  zones, byte-level tokenization, ~1M tokens. H-01's non-inferiority hold is across five seeds but
-  at a scale where a larger model, BPE tokenization, more depth, and orders of magnitude more data
-  could change the verdict. The size/zone ladder trends downward but a confounded three-rung curve
-  is not a scaling law.
+- **Scale.** Every quantitative result is at small scale: ≤2M parameters on ≤1.9M tokens
+  (byte-level for the small ablations, BPE-4096 for the ladder). H-01 holds 5/5 at every rung and
+  the margin widens across an ~8× parameter range, but those three points sit near this corpus's
+  data ceiling, so the widening is a *direction*, not a scaling law; a run orders of magnitude larger
+  — in parameters and especially in data — could flatten or reverse it.
 - **Missing baselines and ablations.** This is the most important gap and we name it plainly. H-01
   compares NAT against exactly one control — an equal-parameter dense single-block transformer.
   There is **no parameter-matched mixture-of-experts baseline**, the most obvious comparison for a
