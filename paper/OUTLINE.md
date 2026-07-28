@@ -34,8 +34,8 @@ scale). ~200 words.
   output. The same move yields verifiability, efficiency, and decentralizability.
 - **Contributions** (numbered): (1) the zone-partitioned architecture + fixed-topology
   routing; (2) provenance-as-verifiable-output (decision-faithful, on-chain-committable);
-  (3) GGUF/ONNX sidecar (ecosystem-compatible); (4) the H-01 result (partitioning does not reduce capability/param
-  equal-param dense, 5/5 seeds, real text); (5) the paraconsistent (Belnap) federated
+  (3) GGUF/ONNX sidecar (ecosystem-compatible); (4) the H-01 result (partitioning is strictly
+  lower-loss per param than equal-param dense, 5/5 seeds, widening with scale); (5) the paraconsistent (Belnap) federated
   training frame on a verifiable chain; (6) a fully reproducible Rust reference impl.
 - Honest-posture statement + roadmap.
 

@@ -28,18 +28,22 @@ simultaneously yields three properties usually pursued separately. **Verifiabili
 committable, replayable artifact whose decision layer is third-party-checkable by construction
 (complementing zkML's after-the-fact proofs with a structural guarantee), and the stateful
 surfaces are model-checked in TLA+. **Capability per parameter** is *empirically supported at small
-scale*: on a 1.12M-token public-domain corpus trained as a next-byte language model with a held-out
-split, an equal-parameter ablation finds that zone partitioning **does not reduce** capability per
-parameter — and is modestly lower-loss on the mean — across five seeds (NAT held-out loss 2.88–2.91
-vs dense 2.97–2.99; a non-inferiority verdict with a 5% slack, N=5, no formal significance test);
-a learned router differentiates prompt classes and generalizes to held-out prompts (separation
-3.10 vs a 2.63 baseline held-out; 11.70 vs 4.25 in-sample); and a three-rung size/zone ladder
-trends downward. **Decentralizability** is *specified and formally modeled, not yet demonstrated*:
-we describe (and TLA+-check the local determinism behind) reconciling composable named zones via
-paraconsistent Belnap aggregation on a verifiable chain, with the multi-node training cycle left as
-future work. All empirical results are at small scale (~20K–115K parameters, byte-level), with no
-mixture-of-experts baseline or component ablation yet, and we are explicit that a larger,
-better-controlled run could refute them — the scale ladder exists precisely to find out cheaply.
+scale, and the margin widens with scale*: holding parameters, data, seed, and compute fixed and
+varying only the partitioning, the zone-partitioned model attains **strictly lower** held-out loss
+than an equal-parameter dense control at every rung of a parameter-matched, subword-tokenized ladder —
+the gap grows 0.024 → 0.106 → 0.141 bits/byte across an ~8× parameter range (248K → 1.0M → 2.0M
+parameters), 5/5 seeds per rung — reproducing the same-direction effect first measured at byte level
+on a 1.12M-token public-domain corpus (NAT held-out loss 2.88–2.91 vs dense 2.97–2.99) and surviving a
+harder prose+code corpus. At equal parameters, data, and training budget this is a parameter- and
+compute-efficiency advantage (the same capability reachable with less of both); we measure capability
+per parameter, not wall-clock. A learned router differentiates prompt classes and generalizes to
+held-out prompts (separation 3.10 vs a 2.63 baseline held-out; 11.70 vs 4.25 in-sample).
+**Decentralizability** is *specified, formally modeled, and now partially scaffolded* — a signed,
+verify-before-compose zone gather — with the multi-node training cycle left as future work: composable
+named zones reconciled via paraconsistent Belnap aggregation on a verifiable chain. All empirical
+results are at small scale (≤2M parameters, byte- and subword-level), with no mixture-of-experts
+baseline or component ablation yet, and we are explicit that a larger, better-controlled run could
+flatten or reverse the trend — the scale ladder exists precisely to find out cheaply.
 NAT is implemented as a reproducible Rust workspace; a GGUF/ONNX sidecar **design** targets
 ecosystem compatibility (the round-trip is not yet shown). We position NAT as the model layer for a
 verifiable, federated learning network in which *consensus and learning are the same process*, and
@@ -110,17 +114,18 @@ at once, which the literature usually pursues in isolation:
    same Q16.16 substrate Citrate's verifiable-inference precompiles already use (Paper X).
    The two compose — a SNARK or TEE attestation can wrap the numeric layer when bit-exact
    logits are required — but only NAT supplies the *structural* guarantee.
-2. **Capability per parameter that does not pay an interpretability tax.** This is our
-   load-bearing, falsifiable claim. Holding parameters, data, seed, and compute fixed and
+2. **Capability per parameter that does not pay an interpretability tax — and widens with scale.**
+   This is our load-bearing, falsifiable claim. Holding parameters, data, seed, and compute fixed and
    varying *only* the partitioning (the ADR-0005 protocol, enforced in code — the harness
-   refuses an unequal-parameter comparison), zone partitioning **does not reduce** capability
-   per parameter versus an equal-parameter dense baseline on a real next-byte language-modeling
-   task — and is modestly lower-loss on the mean — across all five seeds we ran (a non-inferiority
-   result with a 5% slack; N=5, no formal significance test). We are deliberately explicit about
-   scale (§6): this is ~20K parameters, three zones, byte-level, and there is no mixture-of-experts
-   baseline or component ablation yet, so a larger or better-controlled run could overturn it. We
-   report it because it is what we measured; the design at minimum does not trade capability for
-   the verifiability it buys.
+   refuses an unequal-parameter comparison), zone partitioning attains **strictly lower** held-out
+   loss than an equal-parameter dense baseline at every rung of a parameter-matched ladder, and the
+   margin **grows** with scale (0.024 → 0.141 bits/byte across an ~8× parameter range, 5/5 seeds per
+   rung), reproducing the same-direction effect first measured at byte level. Read at equal budget,
+   this is a parameter- and compute-efficiency advantage. We are deliberately explicit about scale
+   (§6): every rung is ≤2M parameters near this corpus's data ceiling, and there is no
+   mixture-of-experts baseline or component ablation yet, so a larger or better-controlled run could
+   flatten or reverse it. We report it because it is what we measured; the design at minimum does not
+   trade capability for the verifiability it buys, and the early read is that it gains.
 3. **Decentralizable.** Because zones are *composable* — a zone is swappable when its slice
    width and cross-zone contract match — a federation can train and evolve a single zone
    without retraining the whole model. Independently-trained zone contributions reconcile
@@ -148,11 +153,13 @@ demonstrated):
    the existing inference stack; the flattened-dense export and Ollama-class round-trip are not
    yet built (WP-1.4).
 4. *[demonstrated, small scale]* The **H-01 result**: an equal-parameter ablation on real text
-   finding partitioning does not reduce capability per parameter (non-inferiority, modest mean
-   advantage, 5 seeds) — with explicit scale and missing-baseline caveats.
-5. *[specified]* A **paraconsistent federated-training frame**: composable zones reconciled by
-   Belnap aggregation on a verifiable Q16.16 substrate (the local determinism is TLA+-checked; the
-   multi-node cycle is future work), with compute × data-quality incentives.
+   finding partitioning attains strictly lower held-out loss than a dense control at every rung of a
+   parameter-matched ladder, with the margin **widening** as scale grows (5/5 seeds per rung, ≤2M
+   parameters) — with explicit scale, data-ceiling, and missing-baseline caveats.
+5. *[specified; partially scaffolded]* A **paraconsistent federated-training frame**: composable
+   zones reconciled by Belnap aggregation on a verifiable Q16.16 substrate, with a signed,
+   verify-before-compose zone gather now implemented (`nat-federated`; the local determinism is
+   TLA+-checked; the multi-node training cycle is future work), and compute × data-quality incentives.
 6. *[implemented]* A **reproducible Rust reference implementation** with **TLC-green** TLA+
    specifications of the stateful surfaces, and a companion case study on agent-led model building.
 

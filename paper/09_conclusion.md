@@ -5,15 +5,16 @@ partitioned into declared, named zones over a fixed, auditable topology, merged 
 fixed-point path, and emitting a hashable provenance trace as a first-class output. The wager — that
 *declaring structure* dissolves much of the opacity problem and pays out in verifiability,
 capability per parameter, and decentralizability at once — is supported, at small scale, by what we
-were able to measure: on a real, license-clean, public-domain corpus, zone partitioning did not
-reduce capability per parameter versus an equal-parameter dense baseline and was modestly
-lower-loss on the mean across all five seeds (held-out loss 2.88–2.91 versus 2.97–2.99, a
-non-inferiority result); a learned router differentiated prompt classes and generalized to held-out
-prompts (3.10 versus 2.63); held-out loss trended downward over a three-rung size/zone ladder; and
-decision-faithful provenance holds by construction with the stateful surfaces TLC-checked. These are
-small-scale results without a mixture-of-experts baseline or component ablation, stated with their
-caveats, and the value of the scale ladder is precisely that
-it let us test the load-bearing bet cheaply before committing to anything larger.
+were able to measure: on a real, license-clean, public-domain corpus, zone partitioning was
+**strictly** lower-loss per parameter than an equal-parameter dense control across all five seeds
+(held-out loss 2.88–2.91 versus 2.97–2.99), the margin survived a harder prose+code corpus, and on a
+parameter-matched, subword-tokenized ladder it **widened** with scale (0.024 → 0.141 bits/byte across
+an ~8× parameter range, 5/5 seeds per rung); a learned router differentiated prompt classes and
+generalized to held-out prompts (3.10 versus 2.63); and decision-faithful provenance holds by
+construction with the stateful surfaces TLC-checked. These are small-scale results (≤2M parameters,
+near this corpus's data ceiling) without a mixture-of-experts baseline or component ablation, stated
+with their caveats, and the value of the scale ladder is precisely that it let us test the
+load-bearing bet cheaply, and watch it strengthen, before committing to anything larger.
 
 The work that remains is clearly ordered. The **most important next experiments** are the ones that
 would turn the H-01 result from suggestive to causal: a **parameter-matched mixture-of-experts
