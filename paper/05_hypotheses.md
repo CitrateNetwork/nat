@@ -42,13 +42,20 @@ is an arbitrary monotone transform of cross-entropy, and because the arms are pa
 within 0.08% here (20,718 vs 20,701) the per-parameter normalization is nearly a no-op — so the
 comparison is, in effect, *lower held-out loss at equal parameters*. The per-seed verdict is the
 non-inferiority test "partitioned ≥ dense within a 5% slack," and the headline is the holds-fraction
-across seeds (a non-inferiority result, not strict superiority — §6.1). The run is reproducible:
-`scripts/dgx-gpu.sh run -p nat-ablation --features cuda --example real_h01_corpus -- <corpus-dir>`.
+across seeds. The hypothesis is *registered* as non-inferiority — a deliberately conservative bar — but
+on real data the measured outcome is stronger: strictly lower held-out loss at every seed, and at
+every rung of the scale ladder, with the margin widening as parameters grow (§6.1). The run is
+reproducible: `scripts/dgx-gpu.sh run -p nat-ablation --features cuda --example real_h01_corpus -- <corpus-dir>`.
 
 We ran H-01 twice, deliberately. First on a **synthetic** task (a binned-token-sum, full-batch,
 ~3.9K params) — easy to control, but, as it turned out, too smooth to separate the architectures.
 Then on **real text** (the corpus below), which is the read we treat as decisive. Reporting both,
-and reporting the synthetic read as marginal rather than rounding it up, is part of the method.
+and reporting the synthetic read as marginal rather than rounding it up, is part of the method. The
+same protocol is then instantiated at two scales: the single-output byte-level ablation above
+(~20.7K params, `real_h01_corpus`) and a **per-position autoregressive** LM whose dense control is
+parameter-matched at **each** rung of a subword-tokenized ladder (248K–2.0M params, BPE-4096, match
+≤0.02% throughout; `h01_autoreg_bpe`), so the scale trend is a sequence of independently-matched
+ablations rather than one match extrapolated.
 
 ## 5.3 The corpus
 
@@ -65,8 +72,14 @@ Montaigne, Carroll, Austen), with copyrighted ideas entering only through author
 we own the framing of. The pipeline reports the corpus health: 2,337 documents, 779
 shards, **1,120,711 tokens**, aggregate quality 0.852 (the pipeline's own self-score, on its own
 rubric — a curation diagnostic, not an external quality measure), and zero documents quarantined by
-its own gates (one PII false-positive excepted). Tokenization at L1 is byte-level (vocabulary 256, deterministic), so the
-language-modeling metric is bits/byte and the uniform-baseline is 8.0.
+its own gates (one PII false-positive excepted). For the scale ladder the corpus was grown the same
+fail-closed way — adding the Rust Book and permissive crates, then SICP (CC-BY-SA, owner-approved) —
+into a **1.91M-token, 5,064-document v3** at the same 0.852 self-score and zero quarantined. Two
+tokenizations are used: **byte-level** (vocabulary 256, deterministic; metric bits/byte, uniform
+baseline 8.0) for the small ablations, and a corpus-trained **byte-pair encoding** for the scale
+ladder, where a parameter-matched vocabulary sweep locates a compression/efficiency knee near 4,096
+(§6) — the vocabulary the ladder uses. Every result reports bits/byte, so byte- and subword-level
+runs stay on one comparable axis.
 
 This corpus is small by frontier standards and we make no apology for that — it is the substrate
 for a *cheap, honest* test of the load-bearing hypothesis, not a bid for a leaderboard. The

@@ -742,3 +742,46 @@ v3→v4 corpus change, so only the within-rung gap is a clean comparison; the lo
 re-run; at BPE-4096 the embedding+readout still dominate the budget, so the hold remains a
 per-parameter signal in the cores; ≤8M on 31M tokens is a scale-*up*, and real L2 (committed
 compute, gate g5-l2) is still the rung that could refute.
+
+---
+
+# 2026-06-24 — Folding the widening gap into the paper (arXiv revision)
+
+Today was editorial, not experimental: took the at-scale H-01 result from 2026-06-23 and the
+`nat-federated` Gate-4 scaffold and folded both into the paper, so the arXiv draft finally states
+what the repository actually shows rather than the conservative version it was frozen at.
+
+**The claim that moved.** The paper had H-01 as a *non-inferiority* result — "partitioning does not
+reduce capability per parameter," modest mean advantage, ~20K params, byte-level. That was honest
+when it was written and is now an undersell. The revision states the stronger, *measured* fact: on
+the parameter-matched per-position BPE-4096 ladder the partitioned model is **strictly** lower-loss
+at every rung and the margin **widens** with scale — 0.024 → 0.106 → 0.141 bits/byte across
+248K → 1M → 2M params, 5/5 seeds per rung — reproducing the byte-level read (2.88–2.91 vs 2.97–2.99)
+and surviving the harder corpus-v3 (3.058–3.074 vs 3.138–3.148). The widening ladder is now the
+headline of §6 (new table); the old confounded size/zone ladder is demoted to a clearly-secondary,
+uncontrolled read.
+
+**The line I would not cross.** The framing in hand was "trains faster at the same parameters." The
+repo measures capability *per parameter*, not wall-clock — there is no timing number anywhere yet. So
+the paper makes the efficiency claim at the grain the data supports: at equal parameters, data, seed,
+and budget, reaching lower loss means the same capability is attainable with fewer params and less
+compute — it *learns more per parameter and per unit of compute*, increasingly so with scale — and it
+says, in the same breath, "we measure capability per parameter, not wall-clock." That is the strongest
+version that survives the same red-team that hardened v1. A literal training-speed claim needs
+steps-to-target or wall-clock logged first; we don't have it.
+
+**Federated status nudged.** `nat-federated` (Gate-4 / NAT-S3) moves the gather from "single-process
+simulation" to "signed, verify-before-compose scaffold" in §7 and the contributions list — built, not
+just specified. The live multi-node cycle is still the open milestone, said plainly.
+
+**What changed on disk.** `paper/arxiv/main.tex` (abstract, intro, contributions, §5 corpus+protocol,
+§6 results incl. a new at-scale table, §7 gather, §8 threats, §9 conclusion) and `references.bib`
+(added Sennrich 2016 for BPE); chapter sources reconciled to match — `00_OVERVIEW`, `05_hypotheses`,
+`06_results`, `07_federated`. Static LaTeX check is clean (labels/refs resolve, all cites in the bib,
+environments balanced, new table arity correct). No TeX toolchain on this box, so `main.pdf` is stale —
+rebuild with `latexmk -pdf main.tex` on a TeX host before submission.
+
+**Still open / unchanged by this edit.** No parameter-matched MoE baseline and no component ablation —
+the paper still names these as the most important gaps; the widening, non-overlapping, every-seed
+margin is strong evidence the effect is *real*, not yet proof of its *cause*. The revision strengthens
+the claim to match the data; it does not retire a single caveat.

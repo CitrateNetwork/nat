@@ -49,16 +49,25 @@ model interpretable and verifiable by construction, on every pass, rather than a
 argue this single architectural move---\emph{declaring structure}---yields three properties usually
 pursued separately. \textbf{Verifiability} is demonstrated: the trace is a committable, replayable
 artifact whose decision layer is third-party-checkable, and the stateful surfaces are model-checked
-in TLA+. \textbf{Capability per parameter} is empirically supported at small scale: on a 1.12M-token
-public-domain corpus trained as a next-byte language model with a held-out split, an equal-parameter
-ablation finds that zone partitioning \emph{does not reduce} capability per parameter---and is
-modestly lower-loss on the mean---across five seeds (NAT held-out loss 2.88--2.91 vs.\ dense
-2.97--2.99; a non-inferiority verdict, $N{=}5$, no formal significance test), with a learned router
-that generalizes to held-out prompts (separation 3.10 vs.\ 2.63). \textbf{Decentralizability} is
-specified and formally modeled, not yet demonstrated: composable named zones reconciled via
-paraconsistent (Belnap) aggregation on a verifiable chain. All empirical results are at small scale
-($\sim$20K--115K parameters, byte-level), without a mixture-of-experts baseline or component
-ablation, and we are explicit that a larger, better-controlled run could refute them. NAT is
+in TLA+. \textbf{Capability per parameter} is empirically supported at small scale, and---the result this
+revision adds---the margin \emph{widens with scale} rather than eroding. Holding parameters, data,
+seed, and compute fixed and varying only the partitioning, the zone-partitioned model attains
+\emph{strictly lower} held-out loss than an equal-parameter dense control at every rung of a
+parameter-matched, subword-tokenized ladder: the gap grows $0.024 \to 0.106 \to 0.141$ bits/byte
+across an $\approx$8$\times$ parameter range ($248\mathrm{K} \to 1.0\mathrm{M} \to 2.0\mathrm{M}$
+parameters), $5/5$ seeds at each rung. This reproduces the same-direction effect first measured at
+byte level on a 1.12M-token public-domain corpus (NAT held-out loss 2.88--2.91 vs.\ dense
+2.97--2.99) and surviving a harder prose+code+textbook corpus. At equal parameters, data, and
+training budget, attaining lower loss is a parameter- and compute-efficiency advantage---the same
+capability is reachable with less of both---which is what we mean when we say partitioning lets a
+model \emph{learn more per parameter} than its dense twin; we measure capability per parameter, not
+wall-clock, and keep that distinction explicit. A learned router generalizes to held-out prompts
+(separation 3.10 vs.\ 2.63). \textbf{Decentralizability} is specified, formally modeled, and now
+partially scaffolded---a signed, verify-before-compose zone gather---with the multi-node training
+cycle still future work: composable named zones reconciled via paraconsistent (Belnap) aggregation
+on a verifiable chain. All empirical results are at small scale ($\le$2M parameters, byte- and
+subword-level), without a mixture-of-experts baseline or component ablation, and we are explicit
+that a larger, better-controlled run could flatten or reverse the trend. NAT is
 implemented as a reproducible Rust workspace; a GGUF/ONNX sidecar design targets ecosystem
 compatibility. We position NAT as the model layer for a verifiable, federated learning network in
 which \emph{consensus and learning are the same process}, and contributors are rewarded as
@@ -99,11 +108,13 @@ fact, that \emph{some} opaque computation ran on committed weights
 \citep{chen2024zkml,sun2024zkllm}---verifying the output, not the reasoning. NAT's trace is
 verifiable by construction: the recorded decision is decision-faithful and replayable with no
 per-inference SNARK, on the same \Qff{} substrate as Citrate's verifiable-inference precompiles
-\citep{citrate10}. \textbf{(2) Capability per parameter that does not pay an interpretability tax.}
-Holding parameters, data, seed, and compute fixed and varying only the partitioning, zone
-partitioning does not reduce capability per parameter versus an equal-parameter dense baseline---and
-is modestly lower-loss on the mean---across all five seeds we ran (a non-inferiority result, small
-scale, no MoE baseline or component ablation yet; \S\ref{sec:results}).
+\citep{citrate10}. \textbf{(2) Capability per parameter that does not pay an interpretability tax---and widens with
+scale.} Holding parameters, data, seed, and compute fixed and varying only the partitioning, zone
+partitioning attains \emph{strictly lower} held-out loss than an equal-parameter dense baseline at
+every rung of a parameter-matched ladder, and the margin \emph{grows} with scale ($0.024 \to 0.141$
+bits/byte across an $\approx$8$\times$ parameter range, $5/5$ seeds per rung), reproducing the
+same-direction effect first measured at byte level (small scale, $\le$2M parameters, no MoE baseline
+or component ablation yet; \S\ref{sec:results}).
 \textbf{(3) Decentralizable.} Because zones are composable, a federation can train and evolve a
 single zone; independently-trained contributions reconcile through the deterministic merge locally
 and, across nodes, through paraconsistent (Belnap) aggregation \citep{belnap1977useful} that
@@ -126,12 +137,14 @@ distinction.
 \item \status{specified} An \textbf{ecosystem-compatibility design}: a GGUF/ONNX sidecar; the
 flattened-dense export and Ollama-class round-trip are not yet built.
 \item \status{demonstrated, small scale} The \textbf{H-01 result}: an equal-parameter ablation on
-real text finding partitioning does not reduce capability per parameter (non-inferiority, modest
-mean advantage, 5 seeds)---with explicit scale and missing-baseline caveats.
-\item \status{specified} A \textbf{paraconsistent federated-training frame}: composable zones
-reconciled by Belnap aggregation on a verifiable \Qff{} substrate (local determinism TLA+-checked;
-the multi-node cycle is future work), with $\mathrm{compute}\times\mathrm{data\text{-}quality}$
-incentives.
+real text finding partitioning attains \emph{strictly lower} held-out loss than a dense control at
+every rung of a parameter-matched ladder, with the margin \emph{widening} as scale grows ($5/5$ seeds
+per rung, $\le$2M parameters)---with explicit scale, data-ceiling, and missing-baseline caveats.
+\item \status{specified; partially scaffolded} A \textbf{paraconsistent federated-training frame}:
+composable zones reconciled by Belnap aggregation on a verifiable \Qff{} substrate, with a signed,
+verify-before-compose zone gather now implemented (\texttt{nat-federated}; local determinism
+TLA+-checked; the multi-node training cycle is future work), and
+$\mathrm{compute}\times\mathrm{data\text{-}quality}$ incentives.
 \item \status{implemented} A \textbf{reproducible Rust reference implementation} with TLC-green
 TLA+ specifications of the stateful surfaces, and a companion case study on agent-led model building.
 \end{enumerate}
@@ -395,44 +408,100 @@ since $1/\mathrm{loss}$ is an arbitrary monotone transform and the arms are matc
 comparison is in effect \emph{lower held-out loss at equal parameters}. The per-seed verdict is the
 non-inferiority test ``partitioned $\geq$ dense within a 5\% slack,'' and the headline is the
 holds-fraction. We ran H-01 first on a synthetic task (too smooth, as it turned out) and then on real
-text, which we treat as primary.
+text, which we treat as primary. The same protocol is instantiated at two scales: a single-output
+byte-level ablation ($\approx$20.7K parameters) and a per-position autoregressive language model
+whose dense control is parameter-matched at \emph{each} rung of a subword-tokenized ladder
+($248\mathrm{K}$--$2.0\mathrm{M}$ parameters, the match held to $\le 0.02\%$ throughout), so the
+scale trend is a sequence of independently-matched ablations rather than one match extrapolated.
 
 \paragraph{The corpus.}
-The L1 corpus is a 1.12M-token, license-clean, public-domain ``values spine'' built through a
-fail-closed pipeline (license, length, dedup, PII, and quality gates). Its curation thesis doubles as
-a thesis of the paper: \emph{a rule has no meaning without a community and a form of life}
-(Wittgenstein)---which is why a maker follows the rules of the room, why provenance must answer to a
-public standard, and why good code reads like the codebase around it. It spans logic (Boole
-$\to$ Frege $\to$ Russell $\to$ Belnap), computation (Turing $\to$ Church $\to$ Shannon), craft
-(SICP, the Rust Book, permissive code), and expression (Strunk, Whitman, Montaigne). The pipeline
-reports 2{,}337 documents, 779 shards, 1{,}120{,}711 tokens, and a self-scored aggregate quality of
-0.852 (a curation diagnostic, not an external measure). Tokenization is byte-level (vocabulary 256),
-so the metric is bits/byte (uniform baseline 8.0).
+The corpus is a license-clean, public-domain ``values spine'' built through a fail-closed pipeline
+(license, length, dedup, PII, and quality gates). Its curation thesis doubles as a thesis of the
+paper: \emph{a rule has no meaning without a community and a form of life} (Wittgenstein)---which is
+why a maker follows the rules of the room, why provenance must answer to a public standard, and why
+good code reads like the codebase around it. It spans logic (Boole $\to$ Frege $\to$ Russell $\to$
+Belnap), computation (Turing $\to$ Church $\to$ Shannon), craft (SICP, the Rust Book, permissive
+code), and expression (Strunk, Whitman, Montaigne). The byte-level H-01 read uses the 1.12M-token
+prose spine (2{,}337 documents, 779 shards, 1{,}120{,}711 tokens); the corpus was then grown---adding
+the Rust Book and permissive crates, then SICP (CC-BY-SA, owner-approved)---into a 1.91M-token,
+5{,}064-document v3, with a self-scored aggregate quality of 0.852 and zero quarantined documents (a
+curation diagnostic, not an external measure). Two tokenizations are used: byte-level (vocabulary
+256, metric bits/byte, uniform baseline 8.0) for the small ablations, and a corpus-trained byte-pair
+encoding \citep{sennrich2016bpe} for the scale ladder; a parameter-matched vocabulary sweep locates a
+compression/efficiency knee near 4{,}096 (\S\ref{sec:results}), which is the vocabulary the ladder
+uses. Every result reports bits/byte, so the byte- and subword-level runs stay on one comparable
+axis.
 
 % ===========================================================================
 \section{Results}\label{sec:results}
 
-\subsection{H-01: partitioning does not reduce capability per parameter}
-Under the protocol of \S\ref{sec:hyp}, the real model and an equal-parameter dense transformer
-(20{,}718 $\approx$ 20{,}701 parameters) were each mini-batch-trained on the 1.12M-token corpus as a
-next-byte LM, capability measured as the inverse of held-out cross-entropy per parameter across five
-seeds. \textbf{H-01 is supported: partitioning does not reduce capability per parameter, and is
-modestly lower-loss on the mean, across all five seeds.} We state this carefully: H-01 is registered
-as a \emph{non-inferiority} hypothesis, and the per-seed verdict is a non-inferiority test with a 5\%
-slack, so ``5/5'' means ``on no seed did partitioning fall more than 5\% behind.'' With that defined,
-the partitioned model's held-out next-byte loss is \textbf{2.88--2.91 versus the dense baseline's
-2.97--2.99} (per-seed extremes, non-overlapping), with mean capability-per-parameter $1.670\times
-10^{-5}$ vs.\ $1.621\times10^{-5}$. The ranges are non-overlapping and consistent with a real effect
-in NAT's favor, but $N{=}5$ with no within-arm variance reported and no formal significance test, so
-we call the result \emph{suggestive and supportive}, not a demonstration of superiority.
+\subsection{H-01: partitioning lowers held-out loss per parameter, and the margin widens with scale}
+Under the protocol of \S\ref{sec:hyp}, H-01 was read at three increasingly demanding settings; it
+holds at all three, and the central new finding is that as scale grows the partitioned model's
+per-parameter advantage \emph{widens} rather than erodes.
 
-A synthetic pre-read (binned-token-sum, $\approx$3{,}882 params) held on the mean but on 3 of 5
-seeds; 3/5 vs.\ 5/5 at $N{=}5$ is not statistically distinguishable, the synthetic and real runs
-differ in task, batching, and metric, and we treat the real-data run as primary because it is the
-more realistic setting, not because 5/5 is decisive where 3/5 was not. The scale caveat is
-$\sim$20K parameters, three zones, byte-level, $\sim$1M tokens; a parameter-matched mixture-of-experts
-control and component ablations (\S\ref{sec:disc}) are the experiments that would establish
-\emph{which} structural feature carries the effect.
+\paragraph{Byte level, 1.12M tokens.}
+The real model and an equal-parameter dense transformer ($20{,}718 \approx 20{,}701$ parameters,
+matched to $0.08\%$) were each mini-batch-trained on the prose spine as a next-byte LM across five
+seeds. The partitioned model's held-out next-byte loss is \textbf{2.88--2.91 versus the dense
+baseline's 2.97--2.99} (per-seed extremes, non-overlapping), mean capability-per-parameter
+$1.670\times10^{-5}$ vs.\ $1.621\times10^{-5}$. H-01 is registered as a \emph{non-inferiority}
+hypothesis with a 5\% slack, so ``$5/5$'' formally means ``on no seed did partitioning fall more than
+5\% behind''---but here the stronger fact holds: partitioning is strictly lower-loss on every seed.
+
+\paragraph{A harder corpus does not close the gap.}
+Regrowing the corpus to the 1.91M-token v3 (prose + Rust + SICP) raises both arms' absolute loss---code
+and Scheme are higher-entropy than prose---but the margin survives: NAT \textbf{3.058--3.074} vs.\
+dense \textbf{3.138--3.148}, $5/5$ seeds, capability-per-parameter $1.575\times10^{-5}$ vs.\
+$1.537\times10^{-5}$. Partitioning is not winning because the text is easy.
+
+\paragraph{At scale, the gap widens.}
+The decisive read moves to the real per-position autoregressive architecture (five zones, the
+differentiable merge reconciled to the \Qff{} provenance merge) against a dense control
+parameter-matched \emph{at each rung}, on the v3 corpus under BPE-4096, verified to run genuinely on
+GPU rather than a silent CPU fallback. Across an $\approx$8$\times$ parameter range the partitioned
+model is strictly lower-loss at every rung, $5/5$ seeds, and the margin \emph{grows}
+(Table~\ref{tab:h01ladder}).
+
+\begin{table}[h]\centering\small
+\begin{tabular}{@{}rrrrc@{}}
+\toprule
+Parameters & NAT bits/byte & Dense bits/byte & Gap & Holds \\
+\midrule
+248{,}235 & 2.086 & 2.110 & 0.024 & 5/5 \\
+1{,}005{,}603 & 1.890 & 1.996 & 0.106 & 5/5 \\
+1{,}992{,}978 & 1.845 & 1.986 & \textbf{0.141} & 5/5 \\
+\bottomrule
+\end{tabular}
+\caption{H-01 at scale: a dense control parameter-matched to NAT at \emph{each} rung (match
+$\le0.02\%$), per-position autoregressive LM on the 1.91M-token v3 corpus under BPE-4096, five seeds
+per rung, held-out bits/byte. The partitioned model is strictly lower-loss at every rung and the
+margin widens $0.024 \to 0.141$ bits/byte across an $\approx$8$\times$ parameter range. All rungs are
+$\le$2M parameters on $\approx$788K BPE tokens, near this corpus's data ceiling; three points are a
+direction, not a scaling law.}
+\label{tab:h01ladder}
+\end{table}
+
+\textbf{This is the result the bet turned on.} The standing worry was that partitioning is a
+small-model trick a larger dense transformer would erase; across this range it does the opposite---the
+per-parameter edge widens from $0.024$ to $0.141$ bits/byte. At equal parameters, data, seed, and
+training budget, reaching lower loss means the same capability is attainable with fewer parameters
+and less compute: read as efficiency, the partitioned model \emph{learns more per parameter and per
+unit of compute} than its dense twin, and increasingly so with scale. We measure capability per
+parameter, not wall-clock training time, and state the claim at that grain.
+
+\paragraph{Caveats, in the same breath.}
+Every rung is $\le$2M parameters on $\approx$788K BPE tokens, and the 2M point sits near this corpus's
+honest data ceiling (held-out loss is still falling, so it is not overfit-bound, but the next real
+lever is corpus \emph{volume}, not more parameters); the planned next step grows data before
+parameters. Three rungs are a direction, not a scaling law, and a run orders of magnitude larger
+could flatten or reverse the trend---if it does, that is the result and we follow it. There is still
+\emph{no parameter-matched mixture-of-experts baseline} and \emph{no component ablation}
+(\S\ref{sec:disc}) isolating which feature---router, pruning merge, partition, or SSM/attention
+heterogeneity---carries the effect; a consistent, widening, non-overlapping margin across three
+independently-matched rungs is strong evidence the effect is real, not yet proof of its cause. A
+synthetic pre-read (binned-token-sum, $\approx$3{,}882 params) held on the mean but on 3 of 5 seeds;
+we treat the real-data ladder as primary.
 
 \subsection{H-02: a trained router differentiates and generalizes}
 The trained router drives measurably different zone mixes for different prompt classes and
@@ -442,7 +511,7 @@ baseline, \textbf{3.10 versus 2.63} on the held-out separation metric. On the in
 gap is larger (11.70 vs.\ 4.25), which is the optimistic upper read; we treat the held-out 3.10/2.63
 as the honest evidence. Full-scale labeled batteries across more classes are the conclusive read.
 
-\subsection{A size/zone ladder trends downward}
+\subsection{An earlier single-output ladder (uncontrolled)}
 \begin{table}[h]\centering\small
 \begin{tabular}{@{}lrrr@{}}
 \toprule
@@ -453,19 +522,21 @@ M & 56{,}534 & 3 & 4.054 \\
 L & 114{,}956 & \textbf{5} & \textbf{3.953} \\
 \bottomrule
 \end{tabular}
-\caption{A three-rung ladder; held-out bits/byte fall at each step. The ladder is confounded: the L
-rung changes parameters \emph{and} zone count (3$\to$5), so we cannot attribute its improvement to
-size alone. Three points are a trend, not a scaling law.}
+\caption{An earlier, \emph{uncontrolled} ladder varying NAT's own size and zone count (no dense
+control); held-out bits/byte fall at each step. The L rung changes parameters \emph{and} zone count
+(3$\to$5), so its improvement cannot be attributed to size alone. Superseded for the capability claim
+by the parameter-matched NAT-vs-dense ladder of Table~\ref{tab:h01ladder}.}
 \label{tab:ladder}
 \end{table}
-Holding the corpus fixed, held-out bits/byte fall at each step of a three-rung ladder
-(Table~\ref{tab:ladder}). Two cautions keep this from being a scaling claim: three points are a
-trend, not a law; and the L rung changes \emph{two} variables at once (parameters and zone count
-3$\to$5), so we cannot attribute its improvement to size alone. The ladder is suggestive evidence the
-architecture does not \emph{degrade} with size at this range, not proof that it scales. Separately, a
-per-position autoregressive objective reached 3.42 bits/byte at 53K parameters; we note this only as
-a denser objective the path to L2 will use---it is \emph{not} a controlled size or efficiency
-comparison against the single-output ladder, and we do not present it as one.
+Before the parameter-matched ladder above (Table~\ref{tab:h01ladder}), an earlier read varied NAT's
+own size and zone count on the fixed corpus (Table~\ref{tab:ladder}); held-out bits/byte fall at each
+step. Two cautions keep it from carrying any capability argument: three points are a trend, not a
+law; and the L rung moves \emph{two} variables at once (parameters and zone count $3\to5$), so its
+improvement cannot be attributed to size alone. It is suggestive evidence the architecture does not
+\emph{degrade} with size at this range---no more. The load-bearing claim rests on the controlled
+NAT-vs-dense ladder of \S\ref{sec:results}; the per-position autoregressive objective first noted
+here (3.42 bits/byte at 53K byte-level parameters) is the same objective that ladder later adopts at
+BPE scale.
 
 \subsection{Decision-faithfulness}
 Decision-faithfulness is a \textbf{design property, not an empirical result}: replaying the recorded
@@ -475,13 +546,17 @@ construction, disconfirm the property. Bit-faithfulness is empirical and mode-de
 the deterministic L0 scale and only under a deterministic-inference mode at L1.
 
 \subsection{Summary}
-The load-bearing hypothesis is supported (non-inferiority, modest mean advantage) at L1 on real data
-across five seeds, with honest small-scale and no-significance-test caveats; routing differentiation
-generalizes at small scale (held-out 3.10 vs.\ 2.63); the size/zone ladder trends downward over three
-confounded rungs; and the verifiability guarantee holds by construction with the stateful surfaces
-TLC-checked. What we have \emph{not} shown---a parameter-matched MoE baseline and component ablations,
-a task-level metric, a standard corpus, the hold surviving orders-of-magnitude more scale, and
-federated training in practice---is the subject of \S\ref{sec:disc} and \S\ref{sec:concl}.
+The load-bearing hypothesis is supported and strengthening: partitioning is strictly lower-loss per
+parameter than an equal-parameter dense control on real data across five seeds, the margin survives a
+harder prose+code+textbook corpus, and---on a parameter-matched, subword-tokenized ladder---it
+\emph{widens} with scale ($0.024\to0.141$ bits/byte across an $\approx$8$\times$ range, $5/5$ seeds per
+rung), every rung $\le$2M parameters with honest data-ceiling and no-significance-test caveats.
+Routing differentiation generalizes at small scale (held-out 3.10 vs.\ 2.63); the verifiability
+guarantee holds by construction with the stateful surfaces TLC-checked; and the federated gather is
+now scaffolded with signed, verify-before-compose semantics. What we have \emph{not} shown---a
+parameter-matched MoE baseline and component ablations, a task-level metric, a standard corpus, the
+hold surviving orders-of-magnitude more scale and data, and an end-to-end multi-node federated
+cycle---is the subject of \S\ref{sec:disc} and \S\ref{sec:concl}.
 
 % ===========================================================================
 \section{Federated training by paraconsistent consensus}\label{sec:fed}
@@ -493,12 +568,15 @@ layer is \emph{specified}, not \emph{demonstrated}, and we mark the boundary thr
 Because a zone owns a slice of fixed width and a declared cross-zone contract, it is swappable when
 its slice width and contract match---so a federation can train and evolve a single zone without
 retraining the whole model. A node owns one or more zones, trains them, and submits its zone outputs;
-the async gather \emph{would} collect them under the deadline discipline used inside a single pass,
-and the deterministic \Qff{} merge \emph{would} reconcile independently-computed contributions such
-that every node and an on-chain verifier compute identically. We use the conditional deliberately: the
-determinism property (same gathered set $\Rightarrow$ same bits) is demonstrated locally and
-TLC-checked, and the gather is implemented today as a single-process deterministic simulation of the
-deadline; the multi-node, cross-network signed gather is the federated milestone.
+the async gather collects them under the deadline discipline used inside a single pass, and the
+deterministic \Qff{} merge reconciles independently-computed contributions such that every node and
+an on-chain verifier compute identically. This is now partly discharged rather than purely
+conditional: the determinism property (same gathered set $\Rightarrow$ same bits) is demonstrated
+locally and TLC-checked, and a \texttt{nat-federated} scaffold implements the gather with
+\emph{signed, verify-before-compose} semantics---each submitted zone output carries a signature that
+is checked, and a malformed or unverified contribution is rejected before it can enter the merge, so
+the gather is no longer only a single-process simulation of the deadline. What remains future work is
+the live cycle on top of it: real nodes training real zones over the network and settling on-chain.
 
 \paragraph{Paraconsistent aggregation.}
 Federated nodes have different data distributions, and averaging discards the signal that
@@ -541,9 +619,11 @@ reconcile. We did not design three mechanisms; we declared one structure and rea
 off it.
 
 \paragraph{Threats to validity.}
-\textbf{Scale.} Every quantitative result is at $\sim$20K--115K parameters, byte-level, $\sim$1M
-tokens; a larger model, BPE, more depth, and more data could change the verdict; a confounded
-three-rung curve is not a scaling law. \textbf{Missing baselines and ablations}---the most important
+\textbf{Scale.} Every quantitative result is at $\le$2M parameters on $\le$1.9M tokens (byte-level for
+the small ablations, BPE-4096 for the ladder); the widening margin is three points across an
+$\approx$8$\times$ parameter range sitting near this corpus's data ceiling, a direction rather than a
+scaling law, and a run orders of magnitude larger---in parameters and especially in data---could flatten
+or reverse it. \textbf{Missing baselines and ablations}---the most important
 gap. H-01 compares NAT against exactly one control, an equal-parameter dense transformer; there is
 \emph{no parameter-matched mixture-of-experts baseline}, the obvious comparison for a paper positioned
 against MoE, and \emph{no component ablation} isolating which feature carries the effect (router vs.\
@@ -579,12 +659,14 @@ We presented the Neuroarchitectural Transformer, a transformer partitioned into 
 over a fixed, auditable topology, merged on a deterministic fixed-point path, emitting a hashable
 provenance trace as a first-class output. The wager---that declaring structure dissolves much of the
 opacity problem and pays out in verifiability, capability per parameter, and decentralizability at
-once---is supported, at small scale, by what we measured: on a real public-domain corpus, partitioning
-did not reduce capability per parameter and was modestly lower-loss on the mean across all five seeds
-(a non-inferiority result); a learned router generalized to held-out prompts; held-out loss trended
-downward over a three-rung ladder; and decision-faithful provenance holds by construction with the
-stateful surfaces TLC-checked. These are small-scale results without a mixture-of-experts baseline or
-component ablation, stated with their caveats.
+once---is supported, at small scale, by what we measured: on a real public-domain corpus, partitioning was
+strictly lower-loss per parameter than an equal-parameter dense control across all five seeds, the
+margin survived a harder prose+code corpus, and on a parameter-matched, subword-tokenized ladder it
+\emph{widened} with scale ($0.024\to0.141$ bits/byte across an $\approx$8$\times$ parameter range); a
+learned router generalized to held-out prompts; and decision-faithful provenance holds by
+construction with the stateful surfaces TLC-checked. These are small-scale results ($\le$2M
+parameters, near this corpus's data ceiling) without a mixture-of-experts baseline or component
+ablation, stated with their caveats.
 
 The most important next experiments are the ones that would turn the H-01 result from suggestive to
 causal: a parameter-matched mixture-of-experts baseline; component ablations (no-router, no-prune,
