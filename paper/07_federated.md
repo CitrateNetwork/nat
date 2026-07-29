@@ -14,18 +14,16 @@ Because a zone owns a slice of fixed width and a declared cross-zone contract, a
 (§3.6). This is the structural enabler of decentralized training: a federation can train and evolve
 a *single* zone without retraining the whole model, in contrast to the monolithic-replica model of
 DiLoCo-style federated training (§2). A node owns one or more zones, trains them, and submits its
-zone outputs; the async gather (§3.3) would collect them under the same deadline discipline used inside a
-single forward pass, and the deterministic Q16.16 merge (§3.4) **would** reconcile
-independently-computed contributions into a result that every node — and an on-chain verifier —
-computes identically. We use the conditional deliberately: the determinism *property* that makes
-this sound (same gathered set → same bits) is demonstrated locally and TLC-checked
-(`MergeDeterminism.tla`, §4.5), and the gather is implemented today as a single-process deterministic
-*simulation* of the deadline; the actual multi-node, cross-network signed gather is the Gate-4
-milestone (§7.5), not a result in hand. The swapped zone is also the **routing and adapter target**:
-RM-FL's routing meta-model (precompile `0x0111`) emits a destination redefined to address a NAT zone,
-and a LoRA registered through `LoRAFactory.verifyAdapterAt` (KZG via `0x0108`) targets that zone's
-weights — so a federation specializes one zone without retraining the model (the unification's
-binding #1; `nat-federated::seam::RoutingTarget`).
+zone outputs; the async gather (§3.3) collects them under the same deadline discipline used inside a
+single forward pass, and the deterministic Q16.16 merge (§3.4) reconciles independently-computed
+contributions into a result that every node — and an on-chain verifier — computes identically. This is
+now partly discharged rather than purely conditional: the determinism *property* that makes it sound
+(same gathered set → same bits) is demonstrated locally and TLC-checked (`MergeDeterminism.tla`, §4.5),
+and a `nat-federated` scaffold (Gate-4, NAT-S3) implements the gather with **signed,
+verify-before-compose** semantics — each submitted zone output carries a signature that is checked, and
+a malformed or unverified contribution is rejected before it can enter the merge, so the gather is no
+longer only a single-process *simulation* of the deadline. The remaining future work is the live cycle
+on top of it: real nodes training real zones across the network and settling on-chain (§7.5).
 
 ## 7.2 Paraconsistent aggregation: disagreement as data
 
@@ -92,8 +90,9 @@ served *to* a community, but a model *trained by* one, whose every step answers 
 
 To be exact about the boundary: the local primitives this layer rests on are *demonstrated* — the
 deterministic merge, the async gather, decision-faithful provenance, the trainable zones, the H-01
-result, and the contribution/reward types are implemented and tested (§3–§6). The *network* layer —
-multi-node signed gather across the federation, Belnap aggregation at checkpoint cadence, and the
-end-to-end incentive settlement — is *specified* here and in Papers II/III/VII, and is the Gate-4
-research milestone. We present §7 as the architecture's decentralization story and its falsifiable
-next step, not as a result already in hand.
+result, and the contribution/reward types are implemented and tested (§3–§6). The *network* layer is now partway across that
+boundary: the signed, verify-before-compose gather is **scaffolded** (`nat-federated`, Gate-4 / NAT-S3),
+while multi-node operation across the federation, Belnap aggregation at checkpoint cadence, and the
+end-to-end incentive settlement remain *specified* here and in Papers II/III/VII — the live cycle is the
+open Gate-4 milestone. We present §7 as the architecture's decentralization story and its falsifiable
+next step, with the gather primitive now built and the network cycle not yet in hand.
