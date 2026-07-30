@@ -41,13 +41,42 @@ const DOMAIN: &[u8] = b"nat-fed-v1";
 // Signing seam
 // ---------------------------------------------------------------------------
 
+/// Why a signer could not produce a signature.
+///
+/// This exists because signing is not always local. The production signer is the
+/// gateway operator signer, whose AWS-KMS adapter is a NETWORK CALL — it can time
+/// out, get throttled, or fail auth, none of which is a statement about the
+/// node's honesty.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignError(pub String);
+
+impl std::fmt::Display for SignError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "signing failed: {}", self.0)
+    }
+}
+
+impl std::error::Error for SignError {}
+
 /// Signs the canonical message for a node. The production impl is the gateway
-/// operator signer (ed25519 / AWS-KMS); [`ToyKeyedSigner`] is the test stand-in.
+/// operator signer (secp256k1 / AWS-KMS); [`ToyKeyedSigner`] is the test stand-in.
 pub trait Signer {
     /// The node identity this signer speaks for.
     fn node_id(&self) -> &str;
-    /// Produce a signature over `msg`.
-    fn sign(&self, msg: &[u8]) -> Vec<u8>;
+    /// Produce a signature over `msg`, or say why it could not.
+    ///
+    /// **Fallible on purpose** (ADR-0011). This returned `Vec<u8>` until the
+    /// co-op backend tried to wrap the real operator signer and found there was
+    /// nowhere for a KMS failure to go: an adapter could only panic — killing the
+    /// training loop — or return garbage bytes. Garbage is worse, because the
+    /// gather classifies an unverifiable contribution as
+    /// [`RejectReason::BadSignature`], documented as "forged, tampered, or unknown
+    /// node", and there is no transient-failure reason in that enum. A network
+    /// blip would have been recorded as the node FORGING SIGNATURES and cost it
+    /// the round's pay.
+    ///
+    /// A caller that cannot sign should retry or skip the round — never submit.
+    fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, SignError>;
 }
 
 /// Verifies a signature attributed to a node. The verifier owns the trusted
@@ -103,24 +132,29 @@ impl SignedContribution {
     }
 
     /// Build and sign a contribution with `signer` (sets `node_id` from the signer).
+    ///
+    /// Fallible because [`Signer::sign`] is: a signing failure must surface to the
+    /// caller so it can retry or sit the round out. Returning an unsigned or
+    /// garbage-signed contribution would be indistinguishable from forgery at the
+    /// gather (ADR-0011).
     pub fn create(
         signer: &dyn Signer,
         contribution: StepContribution,
         manifest_hash: impl Into<String>,
         trace_hash: impl Into<String>,
-    ) -> Self {
+    ) -> Result<Self, SignError> {
         let node_id = signer.node_id().to_string();
         let manifest_hash = manifest_hash.into();
         let trace_hash = trace_hash.into();
         let msg = Self::signing_message(&node_id, &contribution, &manifest_hash, &trace_hash);
-        let signature = signer.sign(&msg);
-        Self {
+        let signature = signer.sign(&msg)?;
+        Ok(Self {
             node_id,
             contribution,
             manifest_hash,
             trace_hash,
             signature,
-        }
+        })
     }
 
     /// Recompute the canonical signed message from this contribution's own fields.
@@ -329,8 +363,9 @@ impl Signer for ToyKeyedSigner {
     fn node_id(&self) -> &str {
         &self.node_id
     }
-    fn sign(&self, msg: &[u8]) -> Vec<u8> {
-        keyed_hash(&self.key, msg)
+    fn sign(&self, msg: &[u8]) -> Result<Vec<u8>, SignError> {
+        // Local keyed hash — it cannot fail. Real signers can.
+        Ok(keyed_hash(&self.key, msg))
     }
 }
 
@@ -416,8 +451,8 @@ mod tests {
     fn valid_contributions_are_accepted_and_aggregated() {
         let v = roster(&["a", "b"]);
         let cs = vec![
-            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta"),
-            SignedContribution::create(&signer("b"), contrib(2.0, 1.0, "pb"), "mb", "tb"),
+            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta").expect("local toy signer cannot fail"),
+            SignedContribution::create(&signer("b"), contrib(2.0, 1.0, "pb"), "mb", "tb").expect("local toy signer cannot fail"),
         ];
         let r = gather_and_aggregate(&cs, &v);
         assert_eq!(r.accepted.len(), 2);
@@ -433,8 +468,8 @@ mod tests {
         let v = roster(&["a", "mallory"]);
         let wrong_key = ToyKeyedSigner::new("mallory", b"not-mallorys-key".to_vec());
         let cs = vec![
-            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta"),
-            SignedContribution::create(&wrong_key, contrib(1000.0, 1.0, "pm"), "mm", "tm"),
+            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta").expect("local toy signer cannot fail"),
+            SignedContribution::create(&wrong_key, contrib(1000.0, 1.0, "pm"), "mm", "tm").expect("local toy signer cannot fail"),
         ];
         let r = gather_and_aggregate(&cs, &v);
         assert_eq!(r.accepted.len(), 1);
@@ -447,7 +482,7 @@ mod tests {
     #[test]
     fn tampering_a_field_after_signing_fails_verification() {
         let v = roster(&["a"]);
-        let mut c = SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta");
+        let mut c = SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta").expect("local toy signer cannot fail");
         // Inflate the metered compute after signing — the recomputed message no
         // longer matches the signature.
         c.contribution.compute_metered = Q16::from_f32(9000.0);
@@ -464,7 +499,7 @@ mod tests {
             contrib(4.0, 0.5, "pz"),
             "mz",
             "tz",
-        )];
+        ).expect("local toy signer cannot fail")];
         let r = gather_and_aggregate(&cs, &v);
         assert!(r.accepted.is_empty());
         assert_eq!(r.rejected.len(), 1);
@@ -473,8 +508,8 @@ mod tests {
     #[test]
     fn merged_hash_is_order_independent() {
         let v = roster(&["a", "b"]);
-        let a = SignedContribution::create(&signer("a"), contrib(1.0, 1.0, "pa"), "ma", "ta");
-        let b = SignedContribution::create(&signer("b"), contrib(1.0, 1.0, "pb"), "mb", "tb");
+        let a = SignedContribution::create(&signer("a"), contrib(1.0, 1.0, "pa"), "ma", "ta").expect("local toy signer cannot fail");
+        let b = SignedContribution::create(&signer("b"), contrib(1.0, 1.0, "pb"), "mb", "tb").expect("local toy signer cannot fail");
         let r1 = gather_and_aggregate(&[a.clone(), b.clone()], &v);
         let r2 = gather_and_aggregate(&[b, a], &v);
         // Reordering the inputs yields the identical committed hash + total.
@@ -514,8 +549,8 @@ mod tests {
 
         let v = roster(&["a", "b"]);
         let cs = vec![
-            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta"),
-            SignedContribution::create(&signer("b"), contrib(2.0, 1.0, "pb"), "mb", "tb"),
+            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta").expect("local toy signer cannot fail"),
+            SignedContribution::create(&signer("b"), contrib(2.0, 1.0, "pb"), "mb", "tb").expect("local toy signer cannot fail"),
         ];
         let r = gather_and_aggregate(&cs, &v);
         let chain = RecChain(RefCell::new(Vec::new()));

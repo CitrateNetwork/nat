@@ -23,7 +23,15 @@ use nat_types::{CoreType, ZoneId};
 
 /// A causal sequence operator: `(b, seq, d) -> (b, seq, d)`, attending only to the
 /// present and past.
-trait CausalCore {
+///
+/// `Send + Sync` is required, not incidental. `AutoregLm` holds these as trait
+/// objects, so without the bound the MODEL is not `Send` either — even though
+/// every field it owns (candle `Tensor`, `Var`, `Linear`) already is. That made
+/// the model unusable behind any `Send + Sync` trait, which is what
+/// `citrate-compute-pool`'s `ModelBackend` is; the co-op worker had to confine it
+/// to a dedicated thread and drive it over a channel to compile at all
+/// (ADR-0011). The bound costs nothing and removes that.
+trait CausalCore: Send + Sync {
     fn forward(&self, x: &Tensor) -> Result<Tensor>;
 }
 
@@ -117,7 +125,7 @@ impl AutoregConfig {
 pub struct AutoregLm {
     varmap: VarMap,
     emb: Tensor, // (vocab, d)
-    cores: Vec<Box<dyn CausalCore>>,
+    cores: Vec<Box<dyn CausalCore + Send + Sync>>,
     score_heads: Vec<Linear>, // d -> 1, per zone (per-position score)
     readout: Linear,          // d -> vocab
     cfg: AutoregConfig,
@@ -161,14 +169,14 @@ impl AutoregLm {
         let attn_mask = causal_attn_mask(seq, &dev)?;
         let (tk, tri) = ssm_matrices(seq, &dev)?;
 
-        let mut cores: Vec<Box<dyn CausalCore>> = Vec::with_capacity(cfg.zones.len());
+        let mut cores: Vec<Box<dyn CausalCore + Send + Sync>> = Vec::with_capacity(cfg.zones.len());
         let mut score_heads = Vec::with_capacity(cfg.zones.len());
         for &z in &cfg.zones {
             let p = format!("zone_{}", z.as_str());
             let lin = |name: &str, i: usize, o: usize| {
                 seeded_linear_dt(&varmap, &vb, name, i, o, cfg.seed, dtype, &dev)
             };
-            let core: Box<dyn CausalCore> = match z.default_core() {
+            let core: Box<dyn CausalCore + Send + Sync> = match z.default_core() {
                 CoreType::Attention => Box::new(CausalAttn {
                     wq: lin(&format!("{p}.wq"), d, d)?,
                     wk: lin(&format!("{p}.wk"), d, d)?,
@@ -383,6 +391,33 @@ impl AutoregLm {
             Some((&self.varmap, dir)),
             |xb| self.loss_tensor(xb),
         )
+    }
+
+    /// The model's parameters as `(name, values)`, names exactly as registered.
+    ///
+    /// Exists so a federated worker can compute a **weight delta** without a
+    /// safetensors round-trip. `nat-federated`'s contribution unit is a per-zone
+    /// delta (`ZoneWeightDelta`), and the only way to obtain one before this was
+    /// `save` → read the file → diff, per step. That is a disk write, a parse and
+    /// a copy on the hot path of every training step (ADR-0011).
+    ///
+    /// The names are load-bearing, not cosmetic: `zone_HP.wq`, `zone_SM.log_a`,
+    /// `score_PF` carry zone identity, which is what lets a consumer attribute a
+    /// delta to the zone that produced it. Renaming a parameter is therefore a
+    /// breaking change for the federated path, not an internal detail.
+    pub fn named_parameters(&self) -> Result<Vec<(String, Vec<f32>)>> {
+        let data = self.varmap.data().lock().map_err(|_| {
+            candle_core::Error::Msg("varmap mutex poisoned".to_string())
+        })?;
+        let mut out = Vec::with_capacity(data.len());
+        for (name, var) in data.iter() {
+            let flat = var.as_tensor().flatten_all()?.to_dtype(DType::F32)?.to_vec1::<f32>()?;
+            out.push((name.clone(), flat));
+        }
+        // Name-ordered: two callers enumerating the same model must agree, since
+        // the federated aggregate is coordinate-wise.
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
     }
 
     /// Persist the model weights to `dir/model.safetensors`.
@@ -601,6 +636,33 @@ impl AutoregDenseLm {
             Some((&self.varmap, dir)),
             |xb| self.loss_tensor(xb),
         )
+    }
+
+    /// The model's parameters as `(name, values)`, names exactly as registered.
+    ///
+    /// Exists so a federated worker can compute a **weight delta** without a
+    /// safetensors round-trip. `nat-federated`'s contribution unit is a per-zone
+    /// delta (`ZoneWeightDelta`), and the only way to obtain one before this was
+    /// `save` → read the file → diff, per step. That is a disk write, a parse and
+    /// a copy on the hot path of every training step (ADR-0011).
+    ///
+    /// The names are load-bearing, not cosmetic: `zone_HP.wq`, `zone_SM.log_a`,
+    /// `score_PF` carry zone identity, which is what lets a consumer attribute a
+    /// delta to the zone that produced it. Renaming a parameter is therefore a
+    /// breaking change for the federated path, not an internal detail.
+    pub fn named_parameters(&self) -> Result<Vec<(String, Vec<f32>)>> {
+        let data = self.varmap.data().lock().map_err(|_| {
+            candle_core::Error::Msg("varmap mutex poisoned".to_string())
+        })?;
+        let mut out = Vec::with_capacity(data.len());
+        for (name, var) in data.iter() {
+            let flat = var.as_tensor().flatten_all()?.to_dtype(DType::F32)?.to_vec1::<f32>()?;
+            out.push((name.clone(), flat));
+        }
+        // Name-ordered: two callers enumerating the same model must agree, since
+        // the federated aggregate is coordinate-wise.
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
     }
 
     /// Persist the model weights to `dir/model.safetensors`.
