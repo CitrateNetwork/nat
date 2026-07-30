@@ -37,6 +37,7 @@ fn nat_cfg(d: usize, vocab: usize, seed: u64) -> AutoregConfig {
         seq_len: SEQ_LEN,
         d,
         tau: 1.0,
+        merge_floor: nat_candle::autoreg::DEFAULT_MERGE_FLOOR,
         seed,
     }
 }

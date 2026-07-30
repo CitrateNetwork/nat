@@ -24,6 +24,7 @@ fn cfg_for(d: usize, vocab: usize, seq: usize) -> AutoregConfig {
         seq_len: seq,
         d,
         tau: 1.0,
+        merge_floor: nat_candle::autoreg::DEFAULT_MERGE_FLOOR,
         seed: 1,
     }
 }
