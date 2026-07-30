@@ -458,7 +458,7 @@ mod tests {
             contrib(4.0, 0.5, "pa"),
             "ma",
             "ta",
-        );
+        ).expect("local toy signer cannot fail");
         let row = SettlementRow::from_signed(&c, Some(ZoneId::PF));
         // The two factors flow SEPARATELY (compute=4.0, quality=0.5)…
         assert_eq!(row.compute_metered, Q16::from_f32(4.0));
@@ -490,7 +490,7 @@ mod tests {
                 contrib(compute, quality, "p"),
                 "m",
                 "t",
-            );
+            ).expect("local toy signer cannot fail");
             let row = SettlementRow::from_signed(&c, Some(ZoneId::PF));
             // default unit weights (wCompute = wData = 10000 bps = 1.0)
             assert_eq!(row.patronage_units(BPS_SCALE, BPS_SCALE), expected_units);
@@ -557,7 +557,7 @@ mod tests {
                     contrib(compute, quality, "p"),
                     "m",
                     format!("t{i}"),
-                ));
+                ).expect("local toy signer cannot fail"));
             }
 
             let result = gather_and_aggregate(&contribs, &verifier);
@@ -611,13 +611,13 @@ mod tests {
                 contrib(4.0, 0.5, "pa"),
                 "ma",
                 "ta",
-            ),
+            ).expect("local toy signer cannot fail"),
             SignedContribution::create(
                 &ToyKeyedSigner::new("b", b"key-b".to_vec()),
                 contrib(2.0, 1.0, "pb"),
                 "mb",
                 "tb",
-            ),
+            ).expect("local toy signer cannot fail"),
         ];
 
         let orch = RefOrchestrator;

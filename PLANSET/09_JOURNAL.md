@@ -785,3 +785,72 @@ rebuild with `latexmk -pdf main.tex` on a TeX host before submission.
 the paper still names these as the most important gaps; the widening, non-overlapping, every-seed
 margin is strong evidence the effect is *real*, not yet proof of its *cause*. The revision strengthens
 the claim to match the data; it does not retire a single caveat.
+
+---
+
+# 2026-07-30 — What building the consumer taught us about our own API
+
+Three changes landed in NAT today (ADR-0011), and none of them came from reading
+NAT. They came from trying to run it: `citrate-compute-pool` needed a real
+training backend, and each thing that would not compile — or compiled and would
+have been wrong — pointed at a seam we had specified but never actually used.
+
+## The one that was a bug, not a preference
+
+`Signer::sign` returned `Vec<u8>`. Sync, infallible. That reads as a clean
+interface right up until you try to put a real signer behind it, at which point
+you notice the production signer's KMS adapter is a network call, and there is
+nowhere for a timeout to go.
+
+The adapter can panic, or it can return garbage bytes. I spent a while thinking
+garbage was the safer of the two — it fails closed, surely? — and then read what
+the gather does with a signature that doesn't verify. `RejectReason::BadSignature`
+is documented as *"forged, tampered, or unknown node."* There is no transient
+variant. So an AWS blip would have gone into the record as the node forging
+signatures, and cost it the round's pay.
+
+That is worth sitting with. The interface was not merely awkward; it made an
+infrastructure failure and a fraud attempt indistinguishable, in a system that
+pays money and slashes stake on the difference. A `Result` costs one line per call
+site.
+
+What I nearly did instead was write the adapter anyway, with a note in the docs
+saying "KMS failures will surface as BadSignature — retry." That would have
+compiled, passed a happy-path test, and been wrong the first time us-east-1 had a
+bad afternoon.
+
+## The two that were just friction
+
+`AutoregLm` was not `Send`, because `Box<dyn CausalCore>` carried no bound —
+even though every field it owns already is. The consumer had to put the model on
+its own thread and drive it over a channel to satisfy `ModelBackend: Send + Sync`.
+One word on a trait deleted that thread.
+
+And there was no way to read the parameters out except `save` to safetensors and
+read the file back. The federated unit is a per-zone weight delta, so that
+round-trip was on the hot path of every step. `named_parameters()` fixes it.
+
+## The thing I did not expect
+
+The zone attribution worked with **no change at all**, because `AutoregLm` already
+names its parameters `zone_HP.wq`, `zone_SM.log_a`, `score_PF`. A consumer can
+recover which zone produced a delta purely from the names.
+
+That was luck dressed as design — nobody wrote it down, and a rename would have
+silently rerouted a member's contribution to the wrong zone in a settlement
+ledger. It is written down now, in the ADR and in the accessor's own docs: those
+names are a contract, and renaming one is a breaking change for the federated
+path.
+
+## The durable lesson
+
+An interface you have specified but never consumed is a hypothesis, not a design.
+All three of these passed review, passed tests, and read well. What found them was
+the mundane act of building the thing on the other side of the seam — and in the
+signer's case, following one enum's doc comment to see what the failure would
+actually be *called* when it reached the ledger.
+
+The settlement seam doc (ADR-0007) says NAT decides the weight and compute-pool
+decides the money. That split is still right. What today added is that the seam
+has to survive the way each side actually fails, not only the way each side
+succeeds.
