@@ -8,9 +8,22 @@ it. These are measurements, not fixtures — nothing here was hand-written.
 |---|---|---|---|---|---|
 | `gb10-cpu-f32.json` | GB10 (DGX Spark, aarch64) | `candle-cpu` | f32 | 7,786 | identical |
 | `gb10-cuda-f32.json` | GB10, CUDA 12.8 / `CUDA_COMPUTE_CAP=120` | `candle-cuda` | f32 | 71,098 | identical |
+| `m2max-cpu-f32.json` | Apple M2 Max 32 GB, macOS 15.6.1 | `candle-cpu` | f32 | 7,137 | identical |
+| `m2max-metal-f32.json` | Apple M2 Max 32 GB, macOS 15.6.1 | `candle-metal` | f32 | 13,472 | identical |
+| `m2max-metal-bf16.json` | Apple M2 Max 32 GB, macOS 15.6.1 | `candle-metal` | bf16 | 13,649 | **DIFFERS** |
 
-Produced 2026-07-30 on the same physical machine, which is what makes the pair
-useful: it isolates the *backend* from every other variable.
+The GB10 pair was produced 2026-07-30 on one physical machine, and the M2 Max
+trio the same day on another. Two same-machine pairs plus a genuine cross-vendor
+pair is what makes the set useful: the within-machine pairs isolate the
+*backend*, and the across-machine pair says whether vendor matters on top of it.
+
+**`m2max-metal-bf16.json` is the odd one out and is committed on purpose.** It
+is the evidence that bf16 on Metal is *not* run-to-run deterministic — the probe
+trains one job twice in-process and the two Q16 commitments disagree (reproduced
+3/3 runs, while f32 on the same device is identical 5/5). Do not use it in a
+divergence comparison; it is a record of a device that cannot reproduce itself,
+which is a different and more serious property than diverging from someone else.
+See "What bf16 on Metal costs" below.
 
 ## Comparing a new machine against them
 
@@ -53,6 +66,41 @@ They are also the most *favourable* pairing possible — one machine, one vendor
 float pipeline, two backends. Treat 1.19e-07 as a **lower bound** until a
 genuinely different vendor (Metal, another CUDA architecture) reports in. That
 measurement is the open question these files exist to help answer.
+
+## Answered: a different vendor reported in
+
+Measured 2026-07-30, M2 Max Metal against both GB10 references. This is the
+cross-vendor number the lower bound was waiting on — different silicon vendor,
+different machine, different OS, different float pipeline.
+
+| pair | max abs delta | Δ ÷ Q16 step | Δ loss |
+|---|---|---|---|
+| **Metal ↔ CUDA** | **1.155e-07** | 0.0076 | exactly 0 |
+| Metal ↔ GB10 CPU | 1.341e-07 | 0.0088 | exactly 0 |
+| CUDA ↔ CPU (the old baseline) | 1.192e-07 | 0.0078 | exactly 0 |
+
+**Crossing vendors did not make it worse.** Metal↔CUDA is the *tightest* pair of
+the three, and the worst pair anywhere in the set is 1.341e-07 — 12.5% above the
+single-machine lower bound, still **113.8× below one Q16 grid step**. Zone shares
+agree to 6 decimals on all three machines, so no zone dies on one vendor's
+hardware and not another's.
+
+The lower bound held. `1e-6` remains a sound settlement tolerance: ~7.5× above
+the worst honest divergence now measured, and still 4–5 orders of magnitude below
+any real cheat.
+
+What this does *not* cover: other CUDA architectures, other Apple chips, x86
+CPUs, and dtypes other than f32. The set is two machines.
+
+## What bf16 on Metal costs
+
+f32 on Metal reproduces itself exactly; bf16 does not (3/3 runs differ). So a
+bf16 Metal contribution **cannot be verified by recomputation** — not by another
+machine, and not by the same machine a second later.
+
+Pinning Apple hardware to f32 fixes that, and on this machine it is close to
+free: 2,116 tok/s at f32 versus 2,143 at bf16 on the 8M-parameter bench, a 1.3%
+difference. bf16 buys no measurable speed here and forfeits verifiability.
 
 ## Adding a probe
 
