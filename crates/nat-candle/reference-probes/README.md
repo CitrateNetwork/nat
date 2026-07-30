@@ -92,6 +92,43 @@ any real cheat.
 What this does *not* cover: other CUDA architectures, other Apple chips, x86
 CPUs, and dtypes other than f32. The set is two machines.
 
+## The grid is coarse on purpose — do not "improve" it
+
+The numbers above only work because the Q16 grid step (`2^-16` = 1.53e-05) is
+**~114× coarser** than the worst honest divergence (1.34e-07). Quantization is
+what absorbs cross-backend drift. That is a property of the *ratio*, so it is
+lost by making the grid finer just as surely as by making the hardware noisier.
+
+`Q16` is stored in an `i64` (widened from `i32`), which leaves spare bits. They
+are for **range, not resolution**. The share of coordinates landing on opposite
+sides of a grid boundary is roughly `divergence / grid_step`:
+
+| fractional bits | grid step | straddling coordinates |
+|---|---|---|
+| 16 (today) | 1.53e-05 | ~0.9% |
+| 32 (`Q32.32`) | 2.33e-10 | **all of them, by ~565 steps** |
+
+At 32 fractional bits the grid is finer than the hardware's noise floor, so it
+stops quantizing the disagreement away and starts faithfully recording it. Every
+honest member's commitment would differ, by hundreds of raw units instead of one.
+
+Raising precision does not help either. The divergence measured here is about one
+ULP of f32 — the smallest disagreement the format can express — so there is no
+sloppiness left to recover. f64 would shrink it to ~1e-16, but different
+reduction orders still disagree at *any* precision, so a tolerance is required
+regardless; and f64 is not available on Apple hardware at all (Metal has no f64
+ALU — `mlx matmul doesn't support F64`), so it would exclude every Mac in the
+co-op from accelerated work.
+
+Worse, f64 would make exact equality *almost* work — straddling would drop to
+roughly one coordinate in `1e11`, so commitments would match nearly every time
+and then disagree unpredictably at scale. A primitive that fails rarely and
+silently is more dangerous than one that fails immediately: today's "commitments
+always differ" is honest, and forces the correct design straight away.
+
+The invariant is pinned by a test in `citrate-fed-types`
+(`the_grid_step_is_pinned_at_2_pow_minus_16`).
+
 ## What bf16 on Metal costs
 
 f32 on Metal reproduces itself exactly; bf16 does not (3/3 runs differ). So a
