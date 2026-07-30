@@ -21,6 +21,13 @@ use candle_nn::optim::{AdamW, ParamsAdamW};
 use candle_nn::{loss, Linear, Module, Optimizer, VarBuilder, VarMap};
 use nat_types::{CoreType, ZoneId};
 
+/// Default guaranteed share of the merge, split across zones.
+///
+/// 1% total — with five zones each is guaranteed 0.2%. Large enough that
+/// gradient reaches a suppressed zone, small enough that learned routing still
+/// dominates: a zone the router genuinely favours keeps ~99% of its share.
+pub const DEFAULT_MERGE_FLOOR: f64 = 0.01;
+
 /// A causal sequence operator: `(b, seq, d) -> (b, seq, d)`, attending only to the
 /// present and past.
 ///
@@ -104,6 +111,19 @@ pub struct AutoregConfig {
     /// Model width (embedding + per-zone hidden).
     pub d: usize,
     pub tau: f64,
+    /// Minimum share of the merge every zone is guaranteed, total, mixed
+    /// uniformly: `w = (1 - floor) * softmax + floor / nz`.
+    ///
+    /// Zero reproduces the original pure softmax. Non-zero exists because a pure
+    /// softmax merge can DRIVE A ZONE TO EXACTLY ZERO share, and a zone with zero
+    /// share receives zero gradient, so its score can never recover — a
+    /// self-reinforcing dead zone (ADR-0012). Measured on the 64M checkpoint,
+    /// `PF` — the deepest reasoning zone — sat at share 0.000000 while the other
+    /// four split the mass.
+    ///
+    /// The floor is deterministic, which matters: it must not perturb the
+    /// bit-reproducibility the merge determinism work depends on (ADR-0006).
+    pub merge_floor: f64,
     pub seed: u64,
 }
 
@@ -116,6 +136,7 @@ impl AutoregConfig {
             seq_len: 64,
             d: 48,
             tau: 1.0,
+            merge_floor: DEFAULT_MERGE_FLOOR,
             seed: 2026,
         }
     }
@@ -258,6 +279,49 @@ impl AutoregLm {
         crate::gguf::export(&tensors, &md, path)
     }
 
+    /// Mean per-zone merge weight over a batch — the softmax share each zone
+    /// actually gets, in `cfg.zones` order.
+    ///
+    /// This is the diagnostic the architecture implies but never exposed. The
+    /// merge is a per-position softmax over zone scores, so a zone's gradient
+    /// scales with its share: a zone whose share collapses toward zero stops
+    /// learning, and because it stops learning its score cannot recover. That is
+    /// a self-reinforcing dead zone, and from outside the model it is invisible —
+    /// the loss still falls, the other zones still train, and nothing reports it.
+    ///
+    /// Surfacing it is squarely in NAT's own idiom: the provenance trace exists
+    /// to record "which zones fired and why" (ADR-0003). This asks that same
+    /// question of training rather than of one forward pass.
+    ///
+    /// Returned as f32 whatever the compute dtype, because the caller is
+    /// comparing magnitudes across zones, not feeding this back into the graph.
+    pub fn zone_merge_weights(&self, ids: &Tensor) -> Result<Vec<f32>> {
+        let (b, seq) = ids.dims2()?;
+        let h = self
+            .emb
+            .index_select(&ids.flatten_all()?, 0)?
+            .reshape((b, seq, self.cfg.d))?;
+
+        let mut scores = Vec::with_capacity(self.cores.len());
+        for (i, core) in self.cores.iter().enumerate() {
+            let zo = core.forward(&h)?;
+            scores.push(self.score_heads[i].forward(&zo)?);
+        }
+        let nz = self.cores.len();
+        let score_refs: Vec<&Tensor> = scores.iter().collect();
+        let scores = Tensor::cat(&score_refs, 2)?;
+        // The same softmax the forward pass uses, including the f32 promotion.
+        let weights = candle_nn::ops::softmax(
+            &scores.affine(1.0 / self.cfg.tau, 0.0)?.to_dtype(DType::F32)?,
+            D::Minus1,
+        )?
+        .affine(1.0 - self.cfg.merge_floor, self.cfg.merge_floor / nz as f64)?;
+        // Mean over batch and position -> one share per zone.
+        let mean = weights.sum(0)?.sum(0)?.affine(1.0 / (b * seq) as f64, 0.0)?;
+        mean.reshape(nz)?.to_vec1::<f32>()
+    }
+
+
     /// Logits at every position: ids `(b, seq)` → `(b, seq, vocab)`.
     pub fn forward(&self, ids: &Tensor) -> Result<Tensor> {
         let (b, seq) = ids.dims2()?;
@@ -284,8 +348,12 @@ impl AutoregLm {
                 .affine(1.0 / self.cfg.tau, 0.0)?
                 .to_dtype(DType::F32)?,
             D::Minus1,
-        )?
-        .to_dtype(scores.dtype())?;
+        )?;
+        // Guarantee every zone a share, so none can be driven to exactly zero and
+        // starve of gradient (ADR-0012). Affine, hence deterministic.
+        let weights = weights
+            .affine(1.0 - self.cfg.merge_floor, self.cfg.merge_floor / nz as f64)?
+            .to_dtype(scores.dtype())?;
         let zo_refs: Vec<&Tensor> = zone_outs.iter().collect();
         let stacked = Tensor::stack(&zo_refs, 2)?; // (b, seq, nz, d)
         let w = weights.reshape((b, seq, nz, 1))?;
@@ -1125,5 +1193,83 @@ mod tests {
         let ids =
             Tensor::from_vec(vec![1u32; 2 * cfg.seq_len], (2, cfg.seq_len), m.device()).unwrap();
         assert_eq!(m.forward(&ids).unwrap().dims3().unwrap().2, cfg.vocab);
+    }
+}
+
+#[cfg(test)]
+mod merge_floor_tests {
+    use super::*;
+    use nat_types::ZoneId;
+
+    fn cfg(floor: f64) -> AutoregConfig {
+        AutoregConfig {
+            zones: vec![ZoneId::SM, ZoneId::CB, ZoneId::HP, ZoneId::PF, ZoneId::CX],
+            vocab: 64,
+            seq_len: 8,
+            d: 16,
+            tau: 1.0,
+            merge_floor: floor,
+            seed: 7,
+        }
+    }
+
+    fn ids(m: &AutoregLm) -> Tensor {
+        let v: Vec<u32> = (0..16u32).map(|i| i % 64).collect();
+        Tensor::from_vec(v, (2, 8), m.device()).expect("ids")
+    }
+
+    /// The floor guarantees every zone a share. Without it a zone CAN be driven
+    /// to exactly zero and then receives no gradient forever — measured on the
+    /// real 64M checkpoint, where PF sat at 0.000000 (ADR-0012).
+    #[test]
+    fn every_zone_gets_at_least_its_floor_share() {
+        let floor = 0.01;
+        let m = AutoregLm::new(&cfg(floor)).expect("model");
+        let w = m.zone_merge_weights(&ids(&m)).expect("weights");
+        let nz = w.len() as f64;
+        for (i, share) in w.iter().enumerate() {
+            assert!(
+                (*share as f64) >= floor / nz - 1e-6,
+                "zone {i} share {share} is below the guaranteed floor {}",
+                floor / nz
+            );
+        }
+    }
+
+    /// The floor must not RESHAPE routing — a zone the router favours keeps
+    /// essentially all of its share. A fix that flattened the distribution would
+    /// solve the dead zone by destroying the thing that makes NAT interesting.
+    #[test]
+    fn the_floor_preserves_learned_routing() {
+        let m0 = AutoregLm::new(&cfg(0.0)).expect("m0");
+        let m1 = AutoregLm::new(&cfg(0.01)).expect("m1");
+        let (w0, w1) = (
+            m0.zone_merge_weights(&ids(&m0)).expect("w0"),
+            m1.zone_merge_weights(&ids(&m1)).expect("w1"),
+        );
+        for (a, b) in w0.iter().zip(w1.iter()) {
+            assert!(
+                (a - b).abs() < 0.02,
+                "floor moved a share too far: {a} -> {b}"
+            );
+        }
+    }
+
+    /// Shares still sum to 1 — the floor is a redistribution, not extra mass.
+    #[test]
+    fn shares_remain_a_distribution() {
+        let m = AutoregLm::new(&cfg(0.01)).expect("model");
+        let sum: f32 = m.zone_merge_weights(&ids(&m)).expect("w").iter().sum();
+        assert!((sum - 1.0).abs() < 1e-4, "shares sum to {sum}, not 1");
+    }
+
+    /// Floor zero reproduces the original pure softmax exactly, so the change is
+    /// opt-out and an existing run can be reproduced bit-for-bit.
+    #[test]
+    fn floor_zero_is_the_original_softmax() {
+        let m = AutoregLm::new(&cfg(0.0)).expect("model");
+        let w = m.zone_merge_weights(&ids(&m)).expect("w");
+        let sum: f32 = w.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-4);
     }
 }
