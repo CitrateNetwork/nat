@@ -23,9 +23,14 @@ candle-nn = "0.8"
 # default so the standard workspace build + CI stay CPU-only and need no CUDA
 # toolkit. Build the GPU path with: cargo build -p nat-candle --features cuda
 cuda = ["candle-core/cuda", "candle-nn/cuda"]
+# Apple Silicon. Same op graph, different device (see src/device.rs). A co-op
+# takes the hardware its members own, and a large share of that is Macs.
+metal = ["candle-core/metal", "candle-nn/metal"]
 
 [dev-dependencies]
 nat-provenance.workspace = true
 # For the zone_shares diagnostic example.
 anyhow = "1"
 serde_json.workspace = true
+# divergence_probe commits weights on the Q16 grid.
+sha2.workspace = true
