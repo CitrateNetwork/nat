@@ -26,3 +26,6 @@ cuda = ["candle-core/cuda", "candle-nn/cuda"]
 
 [dev-dependencies]
 nat-provenance.workspace = true
+# For the zone_shares diagnostic example.
+anyhow = "1"
+serde_json.workspace = true

@@ -854,3 +854,79 @@ The settlement seam doc (ADR-0007) says NAT decides the weight and compute-pool
 decides the money. That split is still right. What today added is that the seam
 has to survive the way each side actually fails, not only the way each side
 succeeds.
+
+---
+
+# 2026-07-30 (later) — The prefrontal zone was dead and nothing said so
+
+I found this by accident, which is the part worth recording.
+
+The task was mundane: run one real training step through the co-op backend to
+prove the plumbing. Real corpus, real 64M checkpoint, real GPU. It worked — 7.9s
+on the GB10 — and I printed the per-zone weight deltas mostly as decoration.
+
+Four zones moved. `PF` printed `0.000000e0`.
+
+## What I got wrong first
+
+My first instinct was BF16 underflow: ~3 decimal digits, so a small update on
+large weights rounds back to nothing. I had a CPU run where PF *did* move, which
+seemed to confirm it.
+
+It didn't confirm anything. That CPU run used **fresh f32 weights**, not the
+checkpoint — it differed in dtype, device *and* weights. Three variables, one
+comparison. I had reasoned from a difference I hadn't isolated, and if I'd
+stopped there I would have "fixed" a precision problem that wasn't the problem.
+
+My second instinct was the noise-pruned merge from the architecture doc. Also
+wrong — the autoregressive path has no pruning; `tau` is just a temperature.
+
+## What it actually was
+
+The merge is a per-position softmax over zone scores. A zone's output enters the
+composition multiplied by its share, so **its gradient scales with that share**.
+
+Measured on the real checkpoint: PF's share was `0.000000`. Not small. Zero.
+
+Which makes it self-reinforcing. Zero share ⇒ zero gradient ⇒ the score head
+never updates ⇒ zero share. Once a zone falls out of the softmax there is nothing
+in the architecture that can bring it back. `score_PF.weight` has norm 2.216
+against 0.10–0.21 everywhere else — the scar of the optimizer pushing it down
+until it vanished.
+
+## The uncomfortable part
+
+Every H-01 number we have was measured on a NAT arm with one of five zones inert,
+while those parameters still counted against the budget. The 4M/8M holds, the
+0.176 gap, the 0.188 → 0.251 widening — all of it, with PF contributing nothing.
+
+The hypothesis was winning *handicapped*, which is a better story than the
+alternative. But the numbers are not the numbers, and I have not re-run the
+ladder. Saying so is the whole point; the temptation is to note the fix and let
+the old figures keep standing.
+
+## Why a floor and not the obvious alternatives
+
+An auxiliary load-balancing loss is what MoE would do, and it works. But ADR-0001
+rejected MoE routing for interpretability, and importing MoE's patch would mean
+taking the tuning burden without the thing we rejected it for. Raising `tau` only
+slows the collapse. Re-initialising a dead head needs a detector and a threshold
+and throws away what the head learned.
+
+A floor is structural: mix `merge_floor / nz` uniformly into the softmax and a
+zone *cannot* reach zero, so the loop cannot start. It is an affine transform, so
+the merge stays bit-reproducible — which mattered more than I expected, because
+a stochastic fix would have broken ADR-0006 and `MergeDeterminism.tla` to solve
+a training problem.
+
+## The durable lesson
+
+The architecture's whole pitch is that you can see which zones fired and why.
+There was no way to ask which zones were *training*. The provenance trace answers
+that question for one forward pass, and nobody had asked it of the optimizer.
+
+`zone_merge_weights()` exists now. It is four lines of reuse over the existing
+forward path, and it turns a silent permanent failure into a number you can print.
+The gap was never the fix — it was that nothing made the failure visible, so it
+sat in a shipped checkpoint through an entire ablation ladder without anyone,
+including me, having reason to look.
