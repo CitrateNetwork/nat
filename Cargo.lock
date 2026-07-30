@@ -3,6 +3,12 @@
 version = 4
 
 [[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+
+[[package]]
 name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -693,6 +699,7 @@ dependencies = [
 name = "nat-candle"
 version = "0.0.1"
 dependencies = [
+ "anyhow",
  "candle-core",
  "candle-nn",
  "nat-core",
@@ -701,6 +708,7 @@ dependencies = [
  "nat-sidecar",
  "nat-train",
  "nat-types",
+ "serde_json",
 ]
 
 [[package]]

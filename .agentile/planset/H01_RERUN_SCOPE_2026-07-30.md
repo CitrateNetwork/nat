@@ -2,8 +2,8 @@
 created: 2026-07-30
 branch: feat/zone-merge-diagnostics
 author: Claude (Opus 5), directed by @SaulBuilds
-status: scope — not started; owner decision needed on rungs and on what to claim
-  in the interim
+status: scope — not started; compute measured (§4); owner decision needed on
+  rungs, token budget, and what to claim in the interim
 relates:
   - .agentile/planset/decisions/ADR-0012-merge-floor-dead-zones.md
   - .agentile/planset/decisions/ADR-0005-baseline-protocol.md
@@ -97,29 +97,107 @@ quoted.
 
 ---
 
-## 4. Compute
+## 4. Compute — measured
 
-I have not measured per-rung wall-clock and will not guess it. What is known:
+Benched on the GB10 with `bench_throughput`, batch 64, seq 64, vocab 16384
+(corpus-v6's BPE), 20 steps after warm-up.
 
-- The 64M config from `h01-64m-corpus-v6-2026-07-07.log`: 1,000,000 train /
-  250,000 val sequences, 8 epochs, batch 64, lr 0.003, seq_len 64, 2–3 seeds.
-  That is ~15,625 steps/epoch, ~125,000 steps for a full 8-epoch arm, per seed.
-- The shipped checkpoint reached `epochs_completed: 4`, i.e. the 64M arm was
-  **half** the configured schedule.
-- `bench_throughput` exists and should be run per rung, per dtype, to turn this
-  into hours before any commitment is made.
+The H-01 schedule from `h01-64m-corpus-v6-2026-07-07.log` is **1,000,000 train
+sequences x 8 epochs x seq_len 64 = 512,000,000 tokens per arm per seed.**
 
-**Action before scheduling: run `bench_throughput` at each intended rung and put
-real hours in this document.** Scoping a GPU campaign on an unmeasured throughput
-is how a two-day run becomes a two-week one.
+| rung | params | d | bf16 tok/s | f32 tok/s | **bf16 h** | f32 h | bf16 speedup |
+|------|--------|---|-----------|----------|-----------|-------|--------------|
+| 248K | 279,871 | 8 | 23,859 | 21,025 | **6.0** | 6.8 | 1.13x |
+| 1M | 1,016,321 | 30 | 22,945 | 20,652 | **6.2** | 6.9 | 1.11x |
+| 2M | 2,013,718 | 59 | 22,149 | 18,337 | **6.4** | 7.8 | 1.21x |
+| 4M | 4,025,406 | 115 | 20,160 | 14,447 | **7.1** | 9.8 | 1.40x |
+| 8M | 8,020,261 | 218 | 16,147 | 8,626 | **8.8** | 16.5 | 1.87x |
+| 32M | 32,022,343 | 704 | 5,323 | 2,976 | **26.7** | 47.8 | 1.79x |
+| 64M | 64,074,343 | 1,184 | 2,963 | 1,683 | **48.0** | 84.5 | 1.76x |
+| | | | | **sum** | **109.2** | 180.0 | |
+
+Hours are **per arm, per seed.**
+
+**The dense arm was measured, not assumed** — `bench_throughput` gained a
+`NAT_ARM=dense` mode so that doubling for two arms rests on a measurement. Two
+independent runs at each rung:
+
+| rung | run | NAT tok/s | dense tok/s |
+|------|-----|-----------|-------------|
+| 8M | 1 | 16,147 | 15,449 |
+| 8M | 2 | 15,341 | 15,546 |
+| 64M | 1 | 2,963 | 2,929 |
+| 64M | 2 | 2,948 | 2,908 |
+
+The arms are **indistinguishable**: the spread between them (≤4%) is smaller
+than the spread between two runs of the *same* arm (8M NAT: 16,147 vs 15,341,
+5%). Run 1 has dense slower at 8M, run 2 has it faster — that is noise, not a
+difference. Param counts match the equal-param protocol (63,779,401 vs
+64,074,343). So the ×2 for two arms is sound, and every figure in this section
+should be read with a **±5% run-to-run band**, which does not change any of the
+scheduling conclusions below.
+
+### Campaign totals
+
+| plan | bf16 | f32 |
+|------|------|-----|
+| full ladder, 2 arms, 2 seeds | **437 h — 18.2 days** | 720 h — 30.0 days |
+| full ladder, 2 arms, 3 seeds | **655 h — 27.3 days** | 1,080 h — 45.0 days |
+| 64M only, 2 arms, 3 seeds | **288 h — 12.0 days** | — |
+| 32M only, 2 arms, 3 seeds | **160 h — 6.7 days** | — |
+| 248K–8M, 2 arms, 3 seeds | **207 h — 8.6 days** | — |
+
+**Use bf16.** The speedup is 1.1x at the bottom and ~1.8x from 8M up, which is
+the difference between an 18-day campaign and a 30-day one. This also answers the
+question `bench_throughput`'s own docs left open ("quantify the bf16 speedup once
+WP-S2 lands").
+
+### The finding that should change the plan
+
+**The lower rungs are not cheap.** 248K–8M costs 8.6 days at 3 seeds — most of
+what 64M alone costs (12 days) — because the schedule is a **fixed 512M tokens
+regardless of model size.** Throughput is flat below ~4M params (22–24k tok/s):
+those runs are overhead-bound, not compute-bound, so a smaller model does not buy
+a shorter run.
+
+Put in tokens-per-parameter, the fixed schedule means:
+
+| rung | tok/param |
+|------|-----------|
+| 248K | ~1,830 |
+| 64M | ~8 |
+
+Compute-optimal is roughly 20. So the small rungs are ~90x **over**-trained and
+the top rung is ~2.5x **under**-trained, and the ladder is not comparing runs of
+equivalent training adequacy.
+
+That may well be deliberate — holding the data budget constant isolates the
+parameter variable, which is what ADR-0005 is about. But it is worth an explicit
+decision rather than an inherited default, because scaling the token budget with
+model size would cut the lower rungs to under an hour each and let the saved days
+go into seeds at 32M/64M, where the answer actually lives.
+
+**Recommendation:** bf16; 64M and 32M first (18.7 days at 3 seeds) since that is
+where collapse was observed and where the H-01 claim is weakest; then decide on
+the lower rungs once their share traces are in hand from the instrumented run.
+
+### One caveat on the hours above
+
+They are for the **full configured 8-epoch schedule**. The shipped 64M checkpoint
+reached `epochs_completed: 4` — half of it. So the prior 64M arm cost ~24 h, not
+48 h, and a re-run that actually finishes the configured schedule costs **twice
+what the original did**, before counting the dense arm or extra seeds. If the
+intent is to reproduce what was measured rather than to run the protocol as
+written, halve the 32M and 64M rows — but then say so, because "8 epochs" in the
+protocol and "4 epochs" on disk are already out of agreement.
 
 ### Hardware note that will bite
 
 The GB10 is `sm_121`. CUDA **12.8**'s nvcc cannot target it; candle rejects CUDA
-**13.0** outright (*"Unsupported cuda toolkit version"*). The working
-combination is **12.8 with `CUDA_COMPUTE_CAP=120`**, relying on PTX
-forward-compat. Any runner script or CI for this campaign needs that pinned, or
-it will not build.
+**13.0** outright (*"Unsupported cuda toolkit version"*). The working combination
+is **12.8 with `CUDA_COMPUTE_CAP=120`**, relying on PTX forward-compat. Any
+runner script or CI for this campaign needs that pinned, or it will not build.
+Every number in this section was measured under exactly that configuration.
 
 ---
 
@@ -147,3 +225,9 @@ a weaker one. But it has to survive by being re-measured, not by being restated.
 4. **Does a dead zone fail the run** (my recommendation: yes) or just get
    recorded?
 5. **Interim wording for H-01** — §5 is a proposal, not a change I have made.
+6. **Fixed 512M tokens at every rung, or scale the budget with model size?**
+   New — this only became visible once the hours were measured (§4). The fixed
+   schedule makes the small rungs cost nearly as much as the large ones while
+   over-training them ~90x.
+7. **8 epochs or 4?** The protocol says 8; the shipped checkpoint has 4. Pick
+   one and make the log and the protocol agree.
