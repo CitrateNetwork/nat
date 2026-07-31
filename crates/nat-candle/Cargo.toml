@@ -34,3 +34,5 @@ anyhow = "1"
 serde_json.workspace = true
 # divergence_probe commits weights on the Q16 grid.
 sha2.workspace = true
+# genesis_checkpoint prints the keccak256 the ArtifactStore addresses by.
+sha3 = "0.10"
