@@ -12,6 +12,14 @@ authors.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# The symmetric toy keyed-hash signer/verifier (`ToyKeyedSigner`/`ToyRosterVerifier`)
+# is a TEST stand-in only — the verifier holds the signing key, so it is not a real
+# signature scheme. It is compiled into this crate's own tests unconditionally; any
+# other crate that wants it for tests must opt in with this feature (NAT2-B-013). It
+# is never part of a default-features production build.
+test-signer = []
+
 [dependencies]
 citrate-fed-types.workspace = true
 nat-types.workspace = true

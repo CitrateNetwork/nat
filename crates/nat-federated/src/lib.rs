@@ -206,6 +206,23 @@ pub struct Rejection {
 pub enum RejectReason {
     /// Signature did not verify against the roster — forged, tampered, or unknown node.
     BadSignature,
+    /// `trace_hash` (or `provenance_hash`) was not a canonical 64-char lowercase
+    /// hex digest. An honest producer always emits `Trace::trace_hash` (pure hex),
+    /// so a non-hex string — in particular one containing the `'\n'` that
+    /// `merge_trace_hashes` joins on — can only be a forged pre-image crafted to
+    /// make the merged on-chain commitment ambiguous (NAT2-B-004 / NAT-F1). Reject
+    /// it before it can enter `merged_hash`.
+    MalformedTraceHash,
+}
+
+/// A canonical trace/provenance hash is exactly 64 lowercase hex characters
+/// (a SHA-256 digest as [`Trace::trace_hash`] emits). Rejecting anything else at
+/// the gather boundary keeps `merge_trace_hashes` injective: no accepted string
+/// can contain the `'\n'` separator or otherwise alias a different accepted set.
+fn is_canonical_hash(s: &str) -> bool {
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 /// Verify every signature, drop the invalid ones, then aggregate. **Verification
@@ -224,18 +241,29 @@ pub fn gather_and_aggregate(
     let mut rejected = Vec::new();
 
     for c in contribs {
-        if verifier.verify(&c.node_id, &c.message(), &c.signature) {
-            accepted.push(AcceptedContribution {
-                node_id: c.node_id.clone(),
-                reward_weight: c.contribution.reward_weight(),
-                trace_hash: c.trace_hash.clone(),
-            });
-        } else {
+        if !verifier.verify(&c.node_id, &c.message(), &c.signature) {
             rejected.push(Rejection {
                 node_id: c.node_id.clone(),
                 reason: RejectReason::BadSignature,
             });
+            continue;
         }
+        // Authenticated, but the signed `trace_hash` must still be a canonical
+        // digest before it can enter the on-chain `merged_hash` — a signature
+        // over a separator-bearing pre-image is still a forged commitment
+        // (NAT2-B-004 / NAT-F1). Fail closed on a malformed hash.
+        if !is_canonical_hash(&c.trace_hash) {
+            rejected.push(Rejection {
+                node_id: c.node_id.clone(),
+                reason: RejectReason::MalformedTraceHash,
+            });
+            continue;
+        }
+        accepted.push(AcceptedContribution {
+            node_id: c.node_id.clone(),
+            reward_weight: c.contribution.reward_weight(),
+            trace_hash: c.trace_hash.clone(),
+        });
     }
 
     let total_reward_weight = accepted.iter().map(|a| a.reward_weight).sum();
@@ -341,11 +369,18 @@ pub fn finalize_round(
 /// separation) — production uses the operator ed25519 / AWS-KMS signer. It is
 /// enough to exercise the verify-before-compose path: tamper any field and the
 /// recomputed message no longer matches the signature.
+///
+/// Gated behind `#[cfg(any(test, feature = "test-signer"))]` (NAT2-B-013) so this
+/// symmetric stand-in — where the verifier holds the signing key and can forge any
+/// node's contributions — can never leak into a default-features production build's
+/// public API. Enable the `test-signer` feature to use it outside this crate's tests.
+#[cfg(any(test, feature = "test-signer"))]
 pub struct ToyKeyedSigner {
     node_id: String,
     key: Vec<u8>,
 }
 
+#[cfg(any(test, feature = "test-signer"))]
 impl ToyKeyedSigner {
     pub fn new(node_id: impl Into<String>, key: impl Into<Vec<u8>>) -> Self {
         Self {
@@ -355,6 +390,7 @@ impl ToyKeyedSigner {
     }
 }
 
+#[cfg(any(test, feature = "test-signer"))]
 fn keyed_hash(key: &[u8], msg: &[u8]) -> Vec<u8> {
     let mut h = Sha256::new();
     h.update(key);
@@ -363,6 +399,7 @@ fn keyed_hash(key: &[u8], msg: &[u8]) -> Vec<u8> {
     h.finalize().to_vec()
 }
 
+#[cfg(any(test, feature = "test-signer"))]
 impl Signer for ToyKeyedSigner {
     fn node_id(&self) -> &str {
         &self.node_id
@@ -374,12 +411,15 @@ impl Signer for ToyKeyedSigner {
 }
 
 /// The verifier counterpart to [`ToyKeyedSigner`]: holds the trusted node→key
-/// roster and recomputes the keyed hash. An unknown node fails closed.
+/// roster and recomputes the keyed hash. An unknown node fails closed. Gated the
+/// same way as [`ToyKeyedSigner`] (NAT2-B-013).
+#[cfg(any(test, feature = "test-signer"))]
 #[derive(Default)]
 pub struct ToyRosterVerifier {
     roster: std::collections::BTreeMap<String, Vec<u8>>,
 }
 
+#[cfg(any(test, feature = "test-signer"))]
 impl ToyRosterVerifier {
     pub fn new() -> Self {
         Self::default()
@@ -391,13 +431,26 @@ impl ToyRosterVerifier {
     }
 }
 
+#[cfg(any(test, feature = "test-signer"))]
 impl Verifier for ToyRosterVerifier {
     fn verify(&self, node_id: &str, msg: &[u8], sig: &[u8]) -> bool {
         match self.roster.get(node_id) {
             Some(key) => {
                 let expect = keyed_hash(key, msg);
-                // constant-time-ish: lengths equal then byte compare (toy path).
-                expect.len() == sig.len() && expect.iter().zip(sig).all(|(a, b)| a == b)
+                // Length-independent, non-short-circuiting compare: fold every byte
+                // (padding the shorter side to a fixed comparison length) so the
+                // running time does not reveal the first differing position. This is
+                // a toy path, but the compare should not itself teach an attacker
+                // where a candidate signature diverges.
+                let len_ok = expect.len() == sig.len();
+                let n = expect.len().max(sig.len());
+                let mut diff: u8 = if len_ok { 0 } else { 1 };
+                for i in 0..n {
+                    let a = expect.get(i).copied().unwrap_or(0);
+                    let b = sig.get(i).copied().unwrap_or(0);
+                    diff |= a ^ b;
+                }
+                diff == 0
             }
             None => false, // unknown node: fail closed
         }
@@ -451,12 +504,22 @@ mod tests {
         v
     }
 
+    /// A canonical 64-char hex trace hash for tests — what `Trace::trace_hash`
+    /// actually emits, and what the gather now requires (NAT2-B-004).
+    fn th(seed: &str) -> String {
+        let mut h = Sha256::new();
+        h.update(seed.as_bytes());
+        hex(&h.finalize())
+    }
+
     #[test]
     fn valid_contributions_are_accepted_and_aggregated() {
         let v = roster(&["a", "b"]);
         let cs = vec![
-            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta").expect("local toy signer cannot fail"),
-            SignedContribution::create(&signer("b"), contrib(2.0, 1.0, "pb"), "mb", "tb").expect("local toy signer cannot fail"),
+            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", th("ta"))
+                .expect("local toy signer cannot fail"),
+            SignedContribution::create(&signer("b"), contrib(2.0, 1.0, "pb"), "mb", th("tb"))
+                .expect("local toy signer cannot fail"),
         ];
         let r = gather_and_aggregate(&cs, &v);
         assert_eq!(r.accepted.len(), 2);
@@ -472,8 +535,10 @@ mod tests {
         let v = roster(&["a", "mallory"]);
         let wrong_key = ToyKeyedSigner::new("mallory", b"not-mallorys-key".to_vec());
         let cs = vec![
-            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta").expect("local toy signer cannot fail"),
-            SignedContribution::create(&wrong_key, contrib(1000.0, 1.0, "pm"), "mm", "tm").expect("local toy signer cannot fail"),
+            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", th("ta"))
+                .expect("local toy signer cannot fail"),
+            SignedContribution::create(&wrong_key, contrib(1000.0, 1.0, "pm"), "mm", th("tm"))
+                .expect("local toy signer cannot fail"),
         ];
         let r = gather_and_aggregate(&cs, &v);
         assert_eq!(r.accepted.len(), 1);
@@ -500,7 +565,7 @@ mod tests {
             &signer("a"),
             contrib(1_000_000.0, 1.0, "fabricated"),
             "ma",
-            "ta",
+            th("ta"),
         )
         .expect("local toy signer cannot fail");
         let r = gather_and_aggregate(std::slice::from_ref(&c), &v);
@@ -513,7 +578,9 @@ mod tests {
     #[test]
     fn tampering_a_field_after_signing_fails_verification() {
         let v = roster(&["a"]);
-        let mut c = SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta").expect("local toy signer cannot fail");
+        let mut c =
+            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", th("ta"))
+                .expect("local toy signer cannot fail");
         // Inflate the metered compute after signing — the recomputed message no
         // longer matches the signature.
         c.contribution.compute_metered = Q16::from_f32(9000.0);
@@ -525,22 +592,54 @@ mod tests {
     #[test]
     fn unknown_node_fails_closed() {
         let v = roster(&["a"]); // 'z' is not on the roster
-        let cs = vec![SignedContribution::create(
-            &signer("z"),
-            contrib(4.0, 0.5, "pz"),
-            "mz",
-            "tz",
-        ).expect("local toy signer cannot fail")];
+        let cs =
+            vec![
+                SignedContribution::create(&signer("z"), contrib(4.0, 0.5, "pz"), "mz", th("tz"))
+                    .expect("local toy signer cannot fail"),
+            ];
         let r = gather_and_aggregate(&cs, &v);
         assert!(r.accepted.is_empty());
         assert_eq!(r.rejected.len(), 1);
     }
 
+    /// NAT2-B-004 / NAT-F1 tripwire. `merge_trace_hashes` joins accepted
+    /// `trace_hash`es with `'\n'` and commits the result on-chain as the round
+    /// anchor. A rostered node whose (correctly-signed) `trace_hash` embeds a
+    /// newline could make a 1-node round commit the identical hash to an honest
+    /// 2-node round — the anchor becomes equivocal. The gather now rejects any
+    /// `trace_hash` that is not a canonical 64-char lowercase-hex digest (which is
+    /// all `Trace::trace_hash` ever emits) BEFORE it can enter `merged_hash`.
+    #[test]
+    fn malformed_trace_hash_is_rejected_before_merge_nat2_b_004() {
+        let v = roster(&["a"]);
+        // A correctly-signed contribution whose trace_hash embeds the '\n'
+        // separator merge_trace_hashes joins on — the injection pre-image.
+        let c = SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "aaa\nbbb")
+            .expect("local toy signer cannot fail");
+        let r = gather_and_aggregate(std::slice::from_ref(&c), &v);
+        assert!(
+            r.accepted.is_empty(),
+            "injection pre-image must not be accepted"
+        );
+        assert_eq!(r.rejected.len(), 1);
+        assert_eq!(r.rejected[0].reason, RejectReason::MalformedTraceHash);
+        // The empty accepted set commits the SHA-256 of nothing — no injected pair.
+        assert_eq!(r.total_reward_weight, Q16::ZERO);
+
+        // Sanity: an honest canonical hex hash is still accepted.
+        let ok = SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", th("ta"))
+            .expect("local toy signer cannot fail");
+        let r2 = gather_and_aggregate(std::slice::from_ref(&ok), &v);
+        assert_eq!(r2.accepted.len(), 1);
+    }
+
     #[test]
     fn merged_hash_is_order_independent() {
         let v = roster(&["a", "b"]);
-        let a = SignedContribution::create(&signer("a"), contrib(1.0, 1.0, "pa"), "ma", "ta").expect("local toy signer cannot fail");
-        let b = SignedContribution::create(&signer("b"), contrib(1.0, 1.0, "pb"), "mb", "tb").expect("local toy signer cannot fail");
+        let a = SignedContribution::create(&signer("a"), contrib(1.0, 1.0, "pa"), "ma", th("ta"))
+            .expect("local toy signer cannot fail");
+        let b = SignedContribution::create(&signer("b"), contrib(1.0, 1.0, "pb"), "mb", th("tb"))
+            .expect("local toy signer cannot fail");
         let r1 = gather_and_aggregate(&[a.clone(), b.clone()], &v);
         let r2 = gather_and_aggregate(&[b, a], &v);
         // Reordering the inputs yields the identical committed hash + total.
@@ -605,8 +704,10 @@ mod tests {
 
         let v = roster(&["a", "b"]);
         let cs = vec![
-            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", "ta").expect("local toy signer cannot fail"),
-            SignedContribution::create(&signer("b"), contrib(2.0, 1.0, "pb"), "mb", "tb").expect("local toy signer cannot fail"),
+            SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", th("ta"))
+                .expect("local toy signer cannot fail"),
+            SignedContribution::create(&signer("b"), contrib(2.0, 1.0, "pb"), "mb", th("tb"))
+                .expect("local toy signer cannot fail"),
         ];
         let r = gather_and_aggregate(&cs, &v);
         let chain = RecChain(RefCell::new(Vec::new()));
