@@ -37,8 +37,32 @@ impl StepContribution {
     /// the signal; compute-pool converts weight → payout under its tokenomics.
     /// Keeping the formula here (not the payout) is the seam boundary.
     pub fn reward_weight(&self) -> Q16 {
-        self.compute_metered.mul(self.data_quality)
+        reward_weight(self.compute_metered, self.data_quality)
     }
+}
+
+/// The canonical reward-weight formula, with the SAME clamping the on-chain
+/// `PatronageLedger` / unified-settlement path applies (NAT-F2): compute is
+/// floored at `0` and quality is clamped into `[0, 1]` before the product. The
+/// legacy `Settlement::settle` path consumes this via
+/// `AcceptedContribution.reward_weight`, and the unified `SettlementRow` path
+/// delegates to it, so both seams now agree — previously the legacy path let a
+/// `quality > 1` or negative quality flow straight through while the unified path
+/// clamped. Honest inputs (`compute ≥ 0`, `quality ∈ [0, 1]`) are unaffected.
+pub fn reward_weight(compute_metered: Q16, data_quality: Q16) -> Q16 {
+    let compute = if compute_metered.raw() < 0 {
+        Q16::ZERO
+    } else {
+        compute_metered
+    };
+    let quality = if data_quality.raw() < Q16::ZERO.raw() {
+        Q16::ZERO
+    } else if data_quality.raw() > Q16::ONE.raw() {
+        Q16::ONE
+    } else {
+        data_quality
+    };
+    compute.mul(quality)
 }
 
 #[cfg(test)]
@@ -54,6 +78,35 @@ mod tests {
             provenance_hash: "abc".into(),
         };
         assert_eq!(c.reward_weight(), Q16::from_f32(2.0));
+    }
+
+    /// NAT-F2 tripwire. Reward weight must apply the on-chain clamping (compute ≥ 0,
+    /// quality ∈ [0,1]) so the legacy `finalize_round`/`Settlement` path and the
+    /// unified `SettlementRow` path cannot settle different amounts for the same
+    /// contribution. The old formula let `quality > 1` inflate and a negative
+    /// quality subtract on the legacy path.
+    #[test]
+    fn reward_weight_clamps_quality_and_compute_nat_f2() {
+        // quality > 1 does not inflate above the compute value.
+        assert_eq!(
+            reward_weight(Q16::from_f32(4.0), Q16::from_f32(2.0)),
+            Q16::from_f32(4.0),
+        );
+        // negative quality floors at 0 (no negative reward on the legacy path).
+        assert_eq!(
+            reward_weight(Q16::from_f32(4.0), Q16::from_f32(-0.5)),
+            Q16::ZERO,
+        );
+        // negative compute floors at 0.
+        assert_eq!(
+            reward_weight(Q16::from_f32(-4.0), Q16::from_f32(0.5)),
+            Q16::ZERO,
+        );
+        // in-range values are unaffected (honest path unchanged).
+        assert_eq!(
+            reward_weight(Q16::from_f32(4.0), Q16::from_f32(0.5)),
+            Q16::from_f32(2.0),
+        );
     }
 
     #[test]
