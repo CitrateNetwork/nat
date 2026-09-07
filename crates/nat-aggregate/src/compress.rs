@@ -65,14 +65,23 @@ pub fn compress(coords: &[Q16]) -> CompressedGradient {
 pub fn decompress(c: &CompressedGradient) -> Vec<Q16> {
     c.values
         .iter()
-        .map(|&v| Q16::from_raw(v as i64 * c.scale_raw))
+        // `CompressedGradient` is the untrusted wire form (public fields), so a
+        // hostile peer can send `scale_raw = i64::MAX` with `values = [127, ...]`
+        // (NAT2-B-021). A plain `i64` multiply panics in debug and wraps in release
+        // — a build-profile fork, and the wrapped garbage would then flow into the
+        // aggregation. `saturating_mul` keeps `decompress` total and profile-
+        // agnostic; honest scales (`|v|·scale` in range) are unaffected.
+        .map(|&v| Q16::from_raw((v as i64).saturating_mul(c.scale_raw)))
         .collect()
 }
 
 /// Round-to-nearest integer division (ties away from zero), branch-symmetric for
 /// negative numerators so quantization is unbiased and sign-symmetric.
 fn div_round_nearest(num: i64, den: i64) -> i64 {
-    debug_assert!(den > 0);
+    // A real (release-surviving) guard, not just `debug_assert!` (NAT2-B-021): the
+    // scale used on the compress side must be positive. A non-positive denominator
+    // is a caller bug, but it must not silently divide-by-zero-or-wrong in release.
+    assert!(den > 0, "div_round_nearest requires a positive denominator");
     if num >= 0 {
         (num + den / 2) / den
     } else {
@@ -109,6 +118,28 @@ mod tests {
         assert_eq!(c.scale_raw, 1);
         assert_eq!(c.values, vec![0, 0, 0]);
         assert_eq!(decompress(&c), g);
+    }
+
+    /// NAT2-B-021 tripwire. `decompress` runs on the untrusted wire form (a peer's
+    /// `CompressedGradient`, public fields). A hostile `scale_raw = i64::MAX` with
+    /// max int8 values used to panic in debug (`attempt to multiply with overflow`)
+    /// and wrap in release — feeding wrapped garbage into the aggregation.
+    /// `decompress` must now be total and never panic/wrap.
+    #[test]
+    fn hostile_scale_does_not_panic_or_wrap() {
+        let hostile = CompressedGradient {
+            scale_raw: i64::MAX,
+            values: vec![127, -127, 1, 0],
+        };
+        let out = decompress(&hostile);
+        // Saturating: the largest-magnitude coordinate saturates to the Q16 limit
+        // rather than wrapping to a sign-flipped value.
+        assert_eq!(out[2], Q16::from_raw(i64::MAX));
+        assert_eq!(out[0], Q16::from_raw(127i64.saturating_mul(i64::MAX)));
+        assert_eq!(out[3], Q16::from_raw(0));
+        // An honest scale round-trips exactly (unaffected by the saturating guard).
+        let g = qv(&[1.0, -2.0, 3.5]);
+        assert_eq!(decompress(&compress(&g)).len(), 3);
     }
 
     #[test]
