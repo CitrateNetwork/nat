@@ -259,8 +259,9 @@ impl NatTrainModel {
         let mut contributions = Vec::with_capacity(steps);
         for step in 0..steps {
             let l = loss::cross_entropy(&self.forward(ids)?, targets)?;
+            let loss_val = l.to_scalar::<f32>()?;
             opt.backward_step(&l)?;
-            contributions.push(self.step_contribution(step, tokens));
+            contributions.push(self.step_contribution(step, tokens, loss_val));
         }
         Ok(contributions)
     }
@@ -304,8 +305,13 @@ impl NatTrainModel {
                 let xb = ids.index_select(&idx, 0)?;
                 let yb = targets.index_select(&idx, 0)?;
                 let l = loss::cross_entropy(&self.forward(&xb)?, &yb)?;
+                let loss_val = l.to_scalar::<f32>()?;
                 opt.backward_step(&l)?;
-                contributions.push(self.step_contribution(step, ((end - start) * seq) as u64));
+                contributions.push(self.step_contribution(
+                    step,
+                    ((end - start) * seq) as u64,
+                    loss_val,
+                ));
                 step += 1;
                 start = end;
             }
@@ -315,16 +321,19 @@ impl NatTrainModel {
 
     /// The settlement-seam contribution for one step: `reward_weight =
     /// compute_metered × data_quality`, on the Q16.16 path.
-    fn step_contribution(&self, step: usize, tokens: u64) -> StepContribution {
+    ///
+    /// `loss` is this step's realized cross-entropy — see [`step_provenance_hash`]
+    /// for why it is bound into the step digest (NAT2-B-010).
+    fn step_contribution(&self, step: usize, tokens: u64, loss: f32) -> StepContribution {
         let compute_metered = Q16::from_f32(tokens as f32 * self.cfg.compute_per_token);
         let data_quality = Q16::from_f32(self.cfg.data_quality);
-        // A deterministic per-step digest. NOT the full inference provenance trace
-        // (that is emitted when the trained model runs inference); a training-step
-        // commitment, reproducible from (seed, step, tokens).
-        let mut h = SplitMix64::new(
-            self.cfg.seed ^ (step as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ tokens,
+        let provenance_hash = step_provenance_hash(
+            self.cfg.seed,
+            step as u64,
+            tokens,
+            Q16::from_f32(loss).raw(),
+            crate::device::backend_label(),
         );
-        let provenance_hash = format!("{:016x}", h.next_u64());
         StepContribution {
             compute_metered,
             data_quality,
@@ -354,6 +363,38 @@ impl NatTrainModel {
             .load(dir.join("spine.safetensors"))?;
         Ok(())
     }
+}
+
+/// A deterministic per-step provenance digest bound to the step's actual
+/// computation (NAT2-B-010).
+///
+/// The old digest was a 64-bit SplitMix64 of `(seed, step, tokens)` — a pure
+/// function of three publicly-known scalars that depended on *none* of the
+/// computation, so a node that trained nothing could emit correct-looking
+/// `provenance_hash` values for every step (and the 64-bit width admitted birthday
+/// collisions at ~2^32 steps). This binds the realized `loss` (Q16-quantized to
+/// stay deterministic) and the resolved `backend`, and widens the digest to 256
+/// bits. It is still a training-step commitment, NOT the full inference provenance
+/// trace — but a step's digest now moves when the work behind it moves, so a node
+/// cannot reproduce it without actually having run the step.
+fn step_provenance_hash(
+    seed: u64,
+    step: u64,
+    tokens: u64,
+    loss_q16_raw: i64,
+    backend: &str,
+) -> String {
+    // Canonical, length-prefixed pre-image → SHA-256 (256-bit hex). Reuses
+    // nat-provenance's SHA-256 helper so nat-candle needs no extra crypto dep.
+    let mut buf = Vec::with_capacity(64);
+    buf.extend_from_slice(b"nat-step-prov-v1");
+    buf.extend_from_slice(&seed.to_le_bytes());
+    buf.extend_from_slice(&step.to_le_bytes());
+    buf.extend_from_slice(&tokens.to_le_bytes());
+    buf.extend_from_slice(&loss_q16_raw.to_le_bytes());
+    buf.extend_from_slice(&(backend.len() as u64).to_le_bytes());
+    buf.extend_from_slice(backend.as_bytes());
+    nat_provenance::sha256_hex(&buf)
 }
 
 /// Deterministic in-place Fisher-Yates shuffle (seeded), so an epoch's batch order
@@ -398,6 +439,34 @@ pub fn synthetic_task(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// NAT2-B-010 tripwire (GPU-free — the digest helper is pure). Two steps with
+    /// identical `(seed, step, tokens)` but different realized loss must produce
+    /// DIFFERENT provenance hashes: the digest is bound to the computation, so a
+    /// node that did not run the step cannot reproduce it from public scalars alone.
+    /// The digest is also a full 256-bit (64-hex) value, not the old 64 bits.
+    #[test]
+    fn step_provenance_hash_binds_loss_and_backend_nat2_b_010() {
+        let base = step_provenance_hash(7, 3, 1024, Q16::from_f32(2.5).raw(), "candle-cpu");
+        // Different loss → different hash (the crux: (seed,step,tokens) no longer
+        // fully determine the digest).
+        let diff_loss = step_provenance_hash(7, 3, 1024, Q16::from_f32(2.4).raw(), "candle-cpu");
+        assert_ne!(base, diff_loss, "provenance hash must depend on the loss");
+        // Different backend → different hash.
+        let diff_backend =
+            step_provenance_hash(7, 3, 1024, Q16::from_f32(2.5).raw(), "candle-cuda");
+        assert_ne!(
+            base, diff_backend,
+            "provenance hash must depend on the backend"
+        );
+        // Deterministic and 256-bit wide.
+        assert_eq!(
+            base,
+            step_provenance_hash(7, 3, 1024, Q16::from_f32(2.5).raw(), "candle-cpu")
+        );
+        assert_eq!(base.len(), 64);
+        assert!(base.bytes().all(|b| b.is_ascii_hexdigit()));
+    }
 
     #[test]
     fn held_out_loss_drops_end_to_end() {
