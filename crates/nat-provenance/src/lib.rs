@@ -279,4 +279,58 @@ mod tests {
         let d = prune_and_reweight(&scores, q(0.99));
         assert_eq!(d.survivors.len(), 1);
     }
+
+    /// NAT2-B-001 RED-witness (disposition: HELD/OWNER — the real fix is
+    /// architectural). A `Trace` carries no signature, no model/weight
+    /// commitment, and no round/nonce, and `verify_decision_faithful` only
+    /// replays the merge against the trace's OWN recorded scores. So a trace
+    /// whose scores, backend and output_hash are wholly invented — produced by a
+    /// node that never ran the model — is "decision-faithful" and hashes cleanly,
+    /// indistinguishable to any third party from a genuine trace.
+    ///
+    /// This test asserts the CURRENT (unsound) behavior on purpose, as a canary.
+    /// When the trace is bound to a signer + model commitment (extend the
+    /// `SignedContribution` signing message to cover `Trace::canonical_bytes`,
+    /// add a `model_commitment`/`round`, and require verification at the consumer
+    /// boundary), fabrication must stop being accepted — invert this test then.
+    #[test]
+    fn fabricated_trace_is_decision_faithful_ccp_nat2_b_001_witness() {
+        // Scores are invented; survivors/weights are made self-consistent by the
+        // same rule an honest producer would run — the ONLY thing the check binds.
+        let scores = vec![(ZoneId::HP, q(0.9)), (ZoneId::PF, q(0.5))];
+        let decision = prune_and_reweight(&scores, q(0.0));
+
+        let forged = Trace {
+            input_hash: "deadbeef".into(),
+            // A GPU-run claim the node never made.
+            backend: "candle-cuda".into(),
+            router: RouterRecord {
+                zone_activation: vec![],
+                edge_modulation: vec![],
+            },
+            zones: vec![],
+            inter_zone_flows: vec![],
+            merge: MergeRecord {
+                scores,
+                prune_threshold: q(0.0),
+                survivors: decision.survivors,
+                weights: decision.weights,
+            },
+            codec: CodecRecord {
+                verification: Verification::Pass,
+                artifact_hash: "0000".into(),
+            },
+            mcp: McpRecord {
+                state_transitions: vec![],
+                tool_calls: vec![],
+                refusal: None,
+            },
+            // An output the node never computed.
+            output_hash: "not-a-real-output".into(),
+        };
+
+        // WITNESS: the wholly-fabricated trace passes and commits to a stable hash.
+        assert!(verify_decision_faithful(&forged));
+        assert_eq!(forged.trace_hash().len(), 64);
+    }
 }

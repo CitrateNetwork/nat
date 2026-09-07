@@ -213,6 +213,51 @@ mod tests {
         );
     }
 
+    // NAT2-B-002 RED-witness (disposition: HELD/OWNER — the fix is a
+    // canonicalization change to a *consensus-grade* commitment whose golden
+    // bytes above are a deliberately review-gated ratchet; re-freezing them
+    // invalidates any previously-published commitment, an owner decision).
+    //
+    // `lower_nat` emits every entry of a readout/projection ROW as a parallel
+    // edge between the SAME `(gate, hidden, kind)` triple, and `canonical_digest`
+    // hashes only the sorted multiset — so permuting the entries WITHIN a row
+    // (which input channel gets which weight, i.e. a functionally different map)
+    // leaves the digest bit-identical. This is strictly weaker than the
+    // transformer path (`fan_in` varies `src` per column, binding column order).
+    //
+    // This test asserts the CURRENT (permutation-blind) behavior as a canary.
+    // The fix binds the in-channel position into the pre-image (e.g. an
+    // `(out_index, in_index)` slot hashed alongside `kind`+`weight`), which makes
+    // the two digests DIFFER while keeping neuron-relabel invariance
+    // (`digest_is_permutation_invariant`) intact — invert this test then, and
+    // re-freeze the goldens above under owner review.
+    #[test]
+    fn within_row_permutation_leaves_digest_unchanged_nat2_b_002_witness() {
+        use crate::ZoneWeights;
+
+        let ckpt_a = nat_checkpoint(11);
+        let mut ckpt_b = ckpt_a.clone();
+        // Reverse the first readout row of the first zone: a genuine permutation
+        // of which input channel maps to output channel 0 — a DIFFERENT model.
+        let wo = match &mut ckpt_b.zone_weights[0].1 {
+            ZoneWeights::Attention { wo, .. } => wo,
+            ZoneWeights::Ssm { wo, .. } => wo,
+        };
+        wo.w[0].reverse();
+
+        let ga = lower_nat(&ckpt_a);
+        let gb = lower_nat(&ckpt_b);
+
+        // The graphs are genuinely different (edge order encodes the mapping)...
+        assert_ne!(ga, gb, "the two checkpoints are functionally different");
+        // ...yet the "tamper-detecting" commitment cannot tell them apart.
+        assert_eq!(
+            canonical_digest(&ga),
+            canonical_digest(&gb),
+            "WITNESS: within-row permutation is invisible to the commitment"
+        );
+    }
+
     #[test]
     fn adding_an_edge_changes_the_digest() {
         let g = lower_transformer(&transformer_checkpoint(11, 2, 4));

@@ -274,7 +274,11 @@ pub fn merge_trace_hashes<'a>(hashes: impl Iterator<Item = &'a str>) -> String {
 /// The `tol` fraction is quantized onto the Q16 grid so the whole comparison stays
 /// on integers (federated-reconcilable).
 pub fn within_tolerance(federated: Q16, centralized: Q16, tol: f32) -> bool {
-    let diff = (federated.raw() - centralized.raw()).unsigned_abs() as u128;
+    // Compute the difference in `i128` so it can never overflow: two saturated
+    // Q16 operands (`i64::MAX` and `i64::MIN`) differ by ~2^64, which panics a
+    // plain `i64` subtraction in debug and wraps it in release — a build-profile
+    // fork this crate's saturating-Q16 discipline exists to forbid (NAT2-B-019).
+    let diff = ((federated.raw() as i128) - (centralized.raw() as i128)).unsigned_abs();
     let mag = centralized.raw().unsigned_abs() as u128;
     let tol_raw = Q16::from_f32(tol).raw().unsigned_abs() as u128;
     // bound = mag * tol  (Q16 multiply: (mag * tol_raw) >> 16)
@@ -479,6 +483,33 @@ mod tests {
         assert_eq!(r.total_reward_weight, Q16::from_f32(2.0));
     }
 
+    /// CCP-SEAM-1 tripwire (owner-accepted mitigation, formalized in
+    /// `docs/SETTLEMENT_SEAM.md` §"Security contract"). The gather authenticates
+    /// but does NOT verify that `compute_metered` reflects real work. This test
+    /// is the complement of `forged_signature_is_rejected_before_aggregation`:
+    /// there a *wrong-key* 1000.0 contribution is rejected; here a *correct-key*
+    /// node over-reports `compute_metered` and is ACCEPTED, its full weight
+    /// entering `total_reward_weight`. Honest-metering is owned by compute-pool.
+    /// If NAT ever gains a metered ceiling / attestation gate, invert this to
+    /// assert the inflated value is capped or rejected.
+    #[test]
+    fn over_reported_compute_is_accepted_ccp_seam_1() {
+        let v = roster(&["a"]);
+        // A correctly-signed contribution reporting 1e6 compute at quality 1.0.
+        let c = SignedContribution::create(
+            &signer("a"),
+            contrib(1_000_000.0, 1.0, "fabricated"),
+            "ma",
+            "ta",
+        )
+        .expect("local toy signer cannot fail");
+        let r = gather_and_aggregate(std::slice::from_ref(&c), &v);
+        // WITNESS: authentication succeeds and the unbacked claim is paid in full.
+        assert_eq!(r.accepted.len(), 1);
+        assert!(r.rejected.is_empty());
+        assert_eq!(r.total_reward_weight, Q16::from_f32(1_000_000.0));
+    }
+
     #[test]
     fn tampering_a_field_after_signing_fails_verification() {
         let v = roster(&["a"]);
@@ -526,6 +557,31 @@ mod tests {
         assert!(!within_tolerance(Q16::from_f32(11.0), cent, 0.05));
         // exact match is always within any non-negative tolerance
         assert!(within_tolerance(cent, cent, 0.0));
+    }
+
+    /// NAT2-B-019 tripwire. `within_tolerance` must be *total* over the whole
+    /// `Q16` domain and must return the SAME answer in debug and release — the
+    /// Q16 saturating contract exists precisely so two honest nodes on different
+    /// build profiles cannot fork. The old body reached through `Q16` to raw
+    /// `i64` and subtracted unchecked, so `(i64::MAX, i64::MIN)` panicked in
+    /// debug (`attempt to subtract with overflow`) and wrapped to `diff == 1`
+    /// in release — making the two most divergent possible aggregates compare as
+    /// "within tolerance". The fix computes the difference in `i128`, which
+    /// cannot overflow, so the check is total and profile-agnostic.
+    #[test]
+    fn tolerance_is_total_and_profile_agnostic_at_saturation() {
+        let hi = Q16::from_raw(i64::MAX);
+        let lo = Q16::from_raw(i64::MIN);
+        // Must not panic (debug) and must not wrap (release): the maximally
+        // divergent pair is emphatically NOT within any sane tolerance.
+        assert!(!within_tolerance(hi, lo, 0.05));
+        assert!(!within_tolerance(lo, hi, 0.05));
+        // Symmetric and still exact away from saturation.
+        let cent = Q16::from_f32(10.0);
+        assert_eq!(
+            within_tolerance(Q16::from_f32(10.3), cent, 0.05),
+            within_tolerance(cent, Q16::from_f32(10.3), 0.05),
+        );
     }
 
     #[test]

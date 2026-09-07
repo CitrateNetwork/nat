@@ -79,3 +79,33 @@ discipline the merge uses (ADR-0006 / `MergeDeterminism.tla`).
 3. Sybil / honest-metering defenses (a node could over-report compute) — this is
    compute-pool's existing peer-scoring + verification surface, not a new NAT
    mechanism.
+
+## Security contract — self-reported metering (CCP-SEAM-1)
+
+This is an **owner-accepted mitigation**, formalized here so the boundary cannot
+drift silently. It is the seam an integration must honor.
+
+**Invariant.** `gather_and_aggregate` authenticates a contribution (its signature
+verifies against a roster key) and preserves post-signing tamper-integrity. It
+does **not** — and by this decision **must not be relied upon to** — verify that
+`compute_metered` reflects real FLOPs, that `data_quality` reflects a real corpus,
+or that `provenance_hash`/`trace_hash` bind to a real forward pass. A node holding
+a valid roster key can therefore sign a `StepContribution` with `compute_metered`
+set arbitrarily high and earn `reward_weight = compute × quality` for work it did
+not do. On the canonical settlement path `data_quality` is clamped to `[0,1]`, so
+only `compute_metered` is unbounded above.
+
+**Ownership.** The mitigation is **compute-pool's** metering-verification /
+peer-scoring surface (open item #3 above). `reward_weight` is an *unauthenticated
+proposal* — the signal NAT emits, never the payout. compute-pool MUST independently
+meter or attest `compute_metered` before it settles money; it MUST NOT treat NAT's
+signature as evidence that the metered value is honest.
+
+**Tripwire.** `nat-federated`'s test
+`over_reported_compute_is_accepted_ccp_seam_1` pins the current behavior: a
+correct-key node reporting an inflated `compute_metered` is accepted and its full
+weight enters `total_reward_weight`. It is the complement of
+`forged_signature_is_rejected_before_aggregation` (which covers the *wrong-key*
+case). If NAT ever grows a per-round metered ceiling or a compute-pool attestation
+gate, that test must be inverted to assert the inflated value is capped/rejected —
+and this contract updated to say the gate moved into NAT.
