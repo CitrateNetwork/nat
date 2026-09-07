@@ -30,6 +30,13 @@ pub struct ShardManifest {
     pub provenance_root: String,
 }
 
+/// Length-prefix a field (u64 LE length + bytes) into a running hash, so a
+/// concatenation of untrusted strings has no delimiter ambiguity (NAT2-B-011).
+fn put_field(h: &mut Sha256, bytes: &[u8]) {
+    h.update((bytes.len() as u64).to_le_bytes());
+    h.update(bytes);
+}
+
 impl ShardManifest {
     /// Compute the manifest for one shard.
     pub fn of(shard: &Shard) -> ShardManifest {
@@ -61,10 +68,28 @@ impl ShardManifest {
             weighted.div(Q16::from_raw((token_count as i64) << 16))
         };
 
-        // Provenance root: hash of concatenated raw-hashes in shard order.
+        // Provenance root (NAT2-B-011). Two fixes over the old
+        // "concatenate raw_hashes" form:
+        //   1. Length-prefix every field. `Shard`/`Document` are `Deserialize` and
+        //      `persist::read_corpus` reads them off disk, so an unseparated
+        //      concatenation of untrusted strings is ambiguous (two different shards
+        //      could share one root). Length prefixes make it injective.
+        //   2. Cover the text that is actually trained on. `Document.text` is the
+        //      NORMALIZED text; the old root hashed only `provenance.raw_hash` (the
+        //      RAW text), so a normalization change / version skew / tampered shard
+        //      whose raw inputs agree produced an identical manifest_hash. Fold the
+        //      id, normalized text and modality refs in as well.
         let mut h = Sha256::new();
+        h.update(b"nat-provenance-root-v1");
+        h.update((shard.docs.len() as u64).to_le_bytes());
         for d in &shard.docs {
-            h.update(d.provenance.raw_hash.as_bytes());
+            put_field(&mut h, d.provenance.raw_hash.as_bytes());
+            put_field(&mut h, d.id.as_bytes());
+            put_field(&mut h, d.text.as_bytes());
+            h.update((d.modality_refs.len() as u64).to_le_bytes());
+            for m in &d.modality_refs {
+                put_field(&mut h, m.as_bytes());
+            }
         }
         let provenance_root = hex(&h.finalize());
 
@@ -136,6 +161,62 @@ mod tests {
         };
         let m = ShardManifest::of(&shard);
         assert!((m.mean_quality.to_f32() - 0.7).abs() < 1e-3);
+    }
+
+    /// NAT2-B-011 tripwire. The manifest is what a federated node trusts before
+    /// training, so it must cover the text actually trained on. Mutating a
+    /// document's NORMALIZED text (`Document.text`) without touching its raw hash
+    /// must change the manifest — the old root hashed only the raw hash, so this
+    /// slipped through.
+    #[test]
+    fn normalized_text_change_moves_the_manifest_hash() {
+        let mk = |text: &str| {
+            let mut d = doc("a", 5, 0.5, vec![ZoneId::PF]);
+            d.text = text.into();
+            let shard = Shard {
+                index: 0,
+                docs: vec![d],
+            };
+            CorpusManifest {
+                config_hash: "cfg".into(),
+                shard_count: 1,
+                total_docs: 1,
+                total_tokens: 5,
+                aggregate_quality: Q16::from_f32(0.5),
+                shards: vec![ShardManifest::of(&shard)],
+            }
+            .manifest_hash()
+        };
+        assert_ne!(
+            mk("the quick brown fox"),
+            mk("the quick brown FOX"),
+            "normalized text must be bound into the manifest hash"
+        );
+    }
+
+    /// The length-prefixed provenance root is injective across a document-boundary
+    /// shift that the old unseparated concatenation aliased. Construct the exact
+    /// collision: one doc whose raw hash is "AB" vs two docs "A","B" — the old root
+    /// hashed `"AB"` in both cases.
+    #[test]
+    fn provenance_root_is_unambiguous_across_field_boundaries() {
+        let with_raw = |raw: &str| {
+            let mut d = doc("id", 1, 0.5, vec![]);
+            d.provenance.raw_hash = raw.into();
+            d
+        };
+        let one_doc = Shard {
+            index: 0,
+            docs: vec![with_raw("AB")],
+        };
+        let two_docs = Shard {
+            index: 0,
+            docs: vec![with_raw("A"), with_raw("B")],
+        };
+        assert_ne!(
+            ShardManifest::of(&one_doc).provenance_root,
+            ShardManifest::of(&two_docs).provenance_root,
+        );
     }
 
     #[test]

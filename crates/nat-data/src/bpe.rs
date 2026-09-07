@@ -37,20 +37,45 @@ impl Bpe {
     }
 
     /// Build from an ordered merge list (rebuilds the vocab + rank index).
+    ///
+    /// Callers that produce the merge list themselves ([`Bpe::byte_level`],
+    /// [`Bpe::train`]) hold the well-formedness invariant by construction. For an
+    /// *untrusted* merge list (a `bpe.json` off disk) use [`Bpe::try_from_merges`],
+    /// which validates before indexing.
+    ///
+    /// # Panics
+    /// If a merge references a token id that does not exist yet — impossible for an
+    /// internally-produced list; [`Bpe::load`] never reaches this path because it
+    /// validates first.
     pub fn from_merges(merges: Vec<(u32, u32)>) -> Self {
+        Self::try_from_merges(merges).expect("internally-produced merge list is well-formed")
+    }
+
+    /// Build from an ordered merge list, **validating** it first (WP-D5 / NAT2-B-006).
+    ///
+    /// Rejects any merge `(a, b)` at rank `r` whose token ids are not both `< 256 + r`
+    /// — the exact well-formedness invariant of an ordered byte-level merge list
+    /// (each merge may only combine base bytes and merges defined strictly before it).
+    /// A hostile or corrupted `bpe.json` (e.g. `{"merges":[[4294967295,0]]}`) is thus
+    /// an `Err`, never an out-of-bounds panic in the loader.
+    pub fn try_from_merges(merges: Vec<(u32, u32)>) -> Result<Self, BpeError> {
         let mut vocab: Vec<Vec<u8>> = (0u16..256).map(|b| vec![b as u8]).collect();
         let mut ranks = HashMap::with_capacity(merges.len());
         for (rank, &(a, b)) in merges.iter().enumerate() {
+            let bound = vocab.len() as u32; // == 256 + rank
+            if a >= bound || b >= bound {
+                return Err(BpeError::MalformedMerge { rank, a, b, bound });
+            }
             let mut bytes = vocab[a as usize].clone();
             bytes.extend_from_slice(&vocab[b as usize]);
             vocab.push(bytes);
             ranks.insert((a, b), rank as u32);
         }
-        Bpe {
+        Ok(Bpe {
             merges,
             vocab,
             ranks,
-        }
+        })
     }
 
     /// Train BPE over the texts until the vocabulary reaches `target_vocab`
@@ -146,13 +171,44 @@ impl Bpe {
     }
 
     /// Load a BPE from a JSON file written by [`Bpe::save`].
+    ///
+    /// The merge list is untrusted (any file on disk), so it is validated via
+    /// [`Bpe::try_from_merges`] — a malformed list is an `InvalidData` error, never
+    /// a panic (NAT2-B-006).
     pub fn load(path: &std::path::Path) -> std::io::Result<Self> {
         let bytes = std::fs::read(path)?;
         let file: BpeFile = serde_json::from_slice(&bytes)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        Ok(Self::from_merges(file.merges))
+        Self::try_from_merges(file.merges)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
     }
 }
+
+/// A malformed byte-level BPE merge list (NAT2-B-006).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BpeError {
+    /// Merge at `rank` references a token id (`a` or `b`) that is not `< bound`
+    /// (`256 + rank`) — it points at a token not yet defined at that rank.
+    MalformedMerge {
+        rank: usize,
+        a: u32,
+        b: u32,
+        bound: u32,
+    },
+}
+
+impl std::fmt::Display for BpeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BpeError::MalformedMerge { rank, a, b, bound } => write!(
+                f,
+                "malformed BPE merge at rank {rank}: ({a},{b}) references a token id >= {bound}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for BpeError {}
 
 /// Split text into maximal runs of whitespace vs non-whitespace (each a "word").
 fn pretokenize(text: &str) -> Vec<Vec<u8>> {
@@ -233,6 +289,32 @@ mod tests {
         let a = Bpe::train(texts.iter().map(String::as_str), 600);
         let b = Bpe::train(texts.iter().map(String::as_str), 600);
         assert_eq!(a.merges, b.merges);
+    }
+
+    /// NAT2-B-006 tripwire. A tokenizer file ships alongside a shared corpus /
+    /// model artifact, so `Bpe::load` ingests untrusted bytes. A malformed merge
+    /// list — out-of-range, self-referential, or forward-referencing — must be an
+    /// `Err`, never the out-of-bounds panic the old `from_merges` produced.
+    #[test]
+    fn hostile_merge_list_is_rejected_not_panicked() {
+        // Out of range: the audit's `{"merges":[[4294967295,0]]}`.
+        assert!(matches!(
+            Bpe::try_from_merges(vec![(u32::MAX, 0)]),
+            Err(BpeError::MalformedMerge { .. })
+        ));
+        // Forward-reference: rank 0 may only use ids < 256.
+        assert!(Bpe::try_from_merges(vec![(256, 0)]).is_err());
+        // Self-reference to the not-yet-created merged token (id 256 at rank 0).
+        assert!(Bpe::try_from_merges(vec![(0, 256)]).is_err());
+        // A well-formed list is still accepted and matches from_merges.
+        let ok = Bpe::try_from_merges(vec![(104, 105)]).expect("valid merge");
+        assert_eq!(ok.merges, vec![(104, 105)]);
+
+        // The load path fails closed on a hostile file.
+        let path = std::env::temp_dir().join("nat_hostile_bpe.json");
+        std::fs::write(&path, br#"{"merges":[[4294967295,0]]}"#).unwrap();
+        assert!(Bpe::load(&path).is_err());
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
