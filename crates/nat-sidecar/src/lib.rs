@@ -91,6 +91,10 @@ pub enum SidecarError {
     BadPruneThreshold(f32),
     #[error("zone {0:?} declared more than once")]
     DuplicateZone(ZoneId),
+    #[error("zone {zone:?} has a zero-width slice")]
+    ZeroWidthSlice { zone: ZoneId },
+    #[error("zones {a:?} and {b:?} declare overlapping slices")]
+    OverlappingSlices { a: ZoneId, b: ZoneId },
 }
 
 impl Sidecar {
@@ -127,6 +131,28 @@ impl Sidecar {
         }
         if !(self.merge.prune_threshold > 0.0 && self.merge.prune_threshold < 1.0) {
             return Err(SidecarError::BadPruneThreshold(self.merge.prune_threshold));
+        }
+        // Zone-slice isolation (NAT2-B-005). A sidecar is the untrusted half of a
+        // downloaded model, so slice geometry must be validated, not assumed: every
+        // zone slice must be non-empty and no two zones may share hidden channels.
+        // Otherwise "zone SM cannot read zone PF's slice" is a convention carried by
+        // the default sidecar rather than an enforced invariant, and a hostile
+        // sidecar can alias every zone onto one slice. (Bounding against the hidden
+        // width `D` is done at read time in `slice_for`, which now clamps instead of
+        // panicking, since `D` is a property of the runtime, not the sidecar.)
+        for (i, a) in self.zones.iter().enumerate() {
+            if a.slice_width == 0 {
+                return Err(SidecarError::ZeroWidthSlice { zone: a.id });
+            }
+            let a_start = a.slice_offset as u64;
+            let a_end = a_start + a.slice_width as u64;
+            for b in &self.zones[..i] {
+                let b_start = b.slice_offset as u64;
+                let b_end = b_start + b.slice_width as u64;
+                if a_start < b_end && b_start < a_end {
+                    return Err(SidecarError::OverlappingSlices { a: b.id, b: a.id });
+                }
+            }
         }
         Ok(())
     }
@@ -221,5 +247,45 @@ mod tests {
             sc.validate(),
             Err(SidecarError::UndeclaredZoneInEdge(ZoneId::CX))
         );
+    }
+
+    /// NAT2-B-005 tripwire. A sidecar is the untrusted half of a downloaded model.
+    /// Zone-slice isolation must be *enforced*, not conventional: a sidecar that
+    /// aliases two zones onto overlapping hidden channels used to validate cleanly,
+    /// so the partition was nominal. `validate` now rejects overlapping and
+    /// zero-width slices.
+    #[test]
+    fn overlapping_and_zero_width_zone_slices_are_rejected() {
+        // All zones aliased onto the same slice — isolation destroyed.
+        let mut sc = Sidecar::default_l0();
+        for z in &mut sc.zones {
+            z.slice_offset = 0;
+            z.slice_width = 16;
+        }
+        assert!(matches!(
+            sc.validate(),
+            Err(SidecarError::OverlappingSlices { .. })
+        ));
+
+        // A single hostile zone straddling its neighbour's slice.
+        let mut sc = Sidecar::default_l0();
+        sc.zones[1].slice_offset = 8; // was 16; now overlaps zone 0 (0..16)
+        assert!(matches!(
+            sc.validate(),
+            Err(SidecarError::OverlappingSlices { .. })
+        ));
+
+        // Zero width is not a valid slice.
+        let mut sc = Sidecar::default_l0();
+        sc.zones[0].slice_width = 0;
+        assert_eq!(
+            sc.validate(),
+            Err(SidecarError::ZeroWidthSlice {
+                zone: sc.zones[0].id
+            })
+        );
+
+        // The honest default topology still validates.
+        assert!(Sidecar::default_l0().validate().is_ok());
     }
 }

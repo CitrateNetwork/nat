@@ -42,6 +42,12 @@ pub enum SeamError {
     EmptyDelta,
     /// Zone-weight deltas disagreed on dimensionality (cannot coordinate-wise reduce).
     DeltaDimensionMismatch { expected: usize, found: usize },
+    /// A settlement row was requested from a contribution whose signature did not
+    /// verify against the roster (NAT2-B-009). Settlement mints an on-chain ledger
+    /// record, so it MUST NOT be reachable from an unverified — possibly forged —
+    /// contribution. The verified constructor
+    /// [`SettlementRow::try_from_signed`] fails closed here.
+    UnverifiedContribution { node_id: String },
 }
 
 impl std::fmt::Display for SeamError {
@@ -59,6 +65,12 @@ impl std::fmt::Display for SeamError {
                 write!(
                     f,
                     "seam: delta dimension mismatch (expected {expected}, found {found})"
+                )
+            }
+            SeamError::UnverifiedContribution { node_id } => {
+                write!(
+                    f,
+                    "seam: refusing to settle unverified contribution from {node_id}"
                 )
             }
         }
@@ -235,9 +247,15 @@ pub struct LedgerRecord {
 }
 
 impl SettlementRow {
-    /// Build a settlement row from a verified [`crate::SignedContribution`] — the
-    /// orchestrator holds it, so both factors, the node id and the trace hash come
-    /// straight from the signed payload (no information is dropped through the gather).
+    /// Build a settlement row from an **already-verified** contribution.
+    ///
+    /// This constructor performs NO verification: it is the fast path for callers
+    /// that hold a contribution the gather already accepted (e.g. after
+    /// [`crate::gather_and_aggregate`]). It must never be handed a raw,
+    /// network-received contribution — settlement mints an on-chain ledger record,
+    /// and a `SettlementRow` built from a forged contribution pays out on unverified
+    /// claims (NAT2-B-009). When you have not already verified the signature, use
+    /// [`SettlementRow::try_from_signed`], which fails closed.
     pub fn from_signed(c: &SignedContribution, zone: Option<ZoneId>) -> Self {
         SettlementRow {
             node_id: c.node_id.clone(),
@@ -246,6 +264,24 @@ impl SettlementRow {
             zone,
             trace_hash: c.trace_hash.clone(),
         }
+    }
+
+    /// Build a settlement row from a contribution, **verifying its signature first**
+    /// (NAT2-B-009). Returns [`SeamError::UnverifiedContribution`] if the signature
+    /// does not verify against the roster — so a forged or tampered contribution can
+    /// never mint a ledger record. This is the constructor any adapter that settles
+    /// network-received contributions must use.
+    pub fn try_from_signed(
+        c: &SignedContribution,
+        verifier: &dyn Verifier,
+        zone: Option<ZoneId>,
+    ) -> Result<Self, SeamError> {
+        if !verifier.verify(&c.node_id, &c.message(), &c.signature) {
+            return Err(SeamError::UnverifiedContribution {
+                node_id: c.node_id.clone(),
+            });
+        }
+        Ok(Self::from_signed(c, zone))
     }
 
     /// The two factors as the shared kernel's settlement row — the ledger math is a pure
@@ -265,9 +301,10 @@ impl SettlementRow {
 
     /// The collapsed reward weight `compute × data_quality` — identical to
     /// [`nat_train::StepContribution::reward_weight`], so the seam and the gather
-    /// agree on the total.
+    /// agree on the total. Uses the shared clamped formula (NAT-F2) so the legacy
+    /// and unified settlement paths cannot disagree on `quality > 1` / negative.
     pub fn reward_weight(&self) -> Q16 {
-        self.compute_metered.mul(self.data_quality)
+        nat_train::reward_weight(self.compute_metered, self.data_quality)
     }
 
     /// `data_quality` (Q16 in [0,1]) as the on-chain `dataQualityBps` (u16 in [0,10000]),
@@ -397,6 +434,14 @@ mod tests {
         }
     }
 
+    /// A canonical 64-char hex trace hash for tests — what the gather requires
+    /// (NAT2-B-004): a real `Trace::trace_hash` is always pure hex.
+    fn th(seed: &str) -> String {
+        let mut h = Sha256::new();
+        h.update(seed.as_bytes());
+        hex(&h.finalize())
+    }
+
     // -- Binding #1 --------------------------------------------------------
 
     #[test]
@@ -457,8 +502,9 @@ mod tests {
             &ToyKeyedSigner::new("a", b"key-a".to_vec()),
             contrib(4.0, 0.5, "pa"),
             "ma",
-            "ta",
-        ).expect("local toy signer cannot fail");
+            th("ta"),
+        )
+        .expect("local toy signer cannot fail");
         let row = SettlementRow::from_signed(&c, Some(ZoneId::PF));
         // The two factors flow SEPARATELY (compute=4.0, quality=0.5)…
         assert_eq!(row.compute_metered, Q16::from_f32(4.0));
@@ -466,12 +512,51 @@ mod tests {
         // …and the collapsed product matches the gather's reward weight (2.0).
         assert_eq!(row.reward_weight(), Q16::from_f32(2.0));
         assert_eq!(row.zone, Some(ZoneId::PF));
-        assert_eq!(row.trace_hash, "ta");
+        assert_eq!(row.trace_hash, th("ta"));
         assert_eq!(row.node_id, "a");
         // The on-chain call shape: compute=4 units, quality=5000 bps.
         let rec = row.to_ledger_record();
         assert_eq!(rec.compute_metered, 4);
         assert_eq!(rec.data_quality_bps, 5000);
+    }
+
+    /// NAT2-B-009 tripwire. Settlement mints an on-chain ledger record, so a
+    /// `SettlementRow` must not be constructible from an unverified contribution.
+    /// `try_from_signed` verifies the signature first and fails closed on a forged
+    /// or tampered payload; the previous only-constructor `from_signed` would have
+    /// happily minted a full record for a contribution the gather rejected.
+    #[test]
+    fn tampered_contribution_cannot_mint_a_settlement_row_nat2_b_009() {
+        let v = ToyRosterVerifier::new().with_node("a", b"key-a".to_vec());
+        let mut c = SignedContribution::create(
+            &ToyKeyedSigner::new("a", b"key-a".to_vec()),
+            contrib(9000.0, 1.0, "pa"),
+            "ma",
+            th("ta"),
+        )
+        .expect("local toy signer cannot fail");
+        // Inflate compute after signing — the signature no longer covers it.
+        c.contribution.compute_metered = Q16::from_f32(1_000_000.0);
+
+        // The verified constructor refuses the forged claim...
+        assert_eq!(
+            SettlementRow::try_from_signed(&c, &v, Some(ZoneId::PF)),
+            Err(SeamError::UnverifiedContribution {
+                node_id: "a".into()
+            })
+        );
+
+        // ...while an honestly-signed contribution mints a row through the same path.
+        let honest = SignedContribution::create(
+            &ToyKeyedSigner::new("a", b"key-a".to_vec()),
+            contrib(4.0, 0.5, "pa"),
+            "ma",
+            th("ta"),
+        )
+        .expect("local toy signer cannot fail");
+        let row = SettlementRow::try_from_signed(&honest, &v, Some(ZoneId::PF))
+            .expect("verified contribution settles");
+        assert_eq!(row.reward_weight(), Q16::from_f32(2.0));
     }
 
     /// The seam's Rust patronage math reproduces the on-chain `PatronageLedger`
@@ -490,7 +575,8 @@ mod tests {
                 contrib(compute, quality, "p"),
                 "m",
                 "t",
-            ).expect("local toy signer cannot fail");
+            )
+            .expect("local toy signer cannot fail");
             let row = SettlementRow::from_signed(&c, Some(ZoneId::PF));
             // default unit weights (wCompute = wData = 10000 bps = 1.0)
             assert_eq!(row.patronage_units(BPS_SCALE, BPS_SCALE), expected_units);
@@ -552,12 +638,15 @@ mod tests {
                 let compute = 8.0 * rng.next_unit();
                 let quality = rng.next_unit(); // in [0,1]
                 expected_quality.insert(id.clone(), Q16::from_f32(quality));
-                contribs.push(SignedContribution::create(
-                    &ToyKeyedSigner::new(id, key),
-                    contrib(compute, quality, "p"),
-                    "m",
-                    format!("t{i}"),
-                ).expect("local toy signer cannot fail"));
+                contribs.push(
+                    SignedContribution::create(
+                        &ToyKeyedSigner::new(id, key),
+                        contrib(compute, quality, "p"),
+                        "m",
+                        th(&format!("t{i}")),
+                    )
+                    .expect("local toy signer cannot fail"),
+                );
             }
 
             let result = gather_and_aggregate(&contribs, &verifier);
@@ -610,14 +699,16 @@ mod tests {
                 &ToyKeyedSigner::new("a", b"key-a".to_vec()),
                 contrib(4.0, 0.5, "pa"),
                 "ma",
-                "ta",
-            ).expect("local toy signer cannot fail"),
+                th("ta"),
+            )
+            .expect("local toy signer cannot fail"),
             SignedContribution::create(
                 &ToyKeyedSigner::new("b", b"key-b".to_vec()),
                 contrib(2.0, 1.0, "pb"),
                 "mb",
-                "tb",
-            ).expect("local toy signer cannot fail"),
+                th("tb"),
+            )
+            .expect("local toy signer cannot fail"),
         ];
 
         let orch = RefOrchestrator;

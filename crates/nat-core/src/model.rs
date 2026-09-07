@@ -348,7 +348,47 @@ fn slice_for(sidecar: &Sidecar, embedding: &[f32], zone: ZoneId) -> Vec<f32> {
         .iter()
         .find(|z| z.id == zone)
         .expect("zone declared");
-    let start = decl.slice_offset as usize;
-    let end = (start + decl.slice_width as usize).min(embedding.len());
+    // Clamp both ends into the embedding (NAT2-B-005). `slice_offset`/`slice_width`
+    // come from an untrusted sidecar; a `slice_offset` past the hidden width `D`
+    // used to panic (`range start index out of range`) — an unauthenticated crash
+    // of any process that loads a third-party model. Clamping yields an empty slice
+    // for an out-of-range zone instead of aborting the forward pass.
+    let len = embedding.len();
+    let start = (decl.slice_offset as usize).min(len);
+    let end = start.saturating_add(decl.slice_width as usize).min(len);
     embedding[start..end].to_vec()
+}
+
+#[cfg(test)]
+mod slice_tests {
+    use super::*;
+    use nat_sidecar::Sidecar;
+
+    /// NAT2-B-005 tripwire. A hostile sidecar whose `slice_offset` points past the
+    /// hidden width used to panic the forward pass (`range start index out of range
+    /// for slice`) — an unauthenticated one-shot crash of any process loading a
+    /// third-party model. `slice_for` now clamps into the embedding, so the forward
+    /// pass completes instead of aborting.
+    #[test]
+    fn out_of_range_slice_offset_does_not_panic_forward() {
+        let mut sidecar = Sidecar::default_l0();
+        // Point the first zone's slice far past any real hidden width.
+        sidecar.zones[0].slice_offset = 4_000_000;
+        let model = NatModel::with_sidecar(sidecar);
+        // Must not panic (previously aborted in slice_for).
+        let _ = model.forward("a prompt that must not crash the loader", None);
+    }
+
+    #[test]
+    fn out_of_range_slice_for_returns_empty_not_panic() {
+        let sidecar = Sidecar::default_l0();
+        let embedding = vec![0.0f32; 96];
+        let mut hostile = sidecar.zones[0].clone();
+        hostile.slice_offset = 4_000_000;
+        // Build a sidecar whose looked-up zone has the hostile offset.
+        let mut sc = sidecar.clone();
+        sc.zones[0] = hostile;
+        let out = slice_for(&sc, &embedding, sc.zones[0].id);
+        assert!(out.is_empty());
+    }
 }

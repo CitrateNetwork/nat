@@ -38,6 +38,80 @@ fn q16_raw(w: f32) -> [u8; 8] {
     Q16::from_f32(w).raw().to_le_bytes()
 }
 
+/// The largest finite `f32` magnitude that survives `Q16::from_f32` without
+/// saturating the `i64` grid: `i64::MAX / 65536 ≈ 1.407e14`. Any `|w|` above this
+/// is mapped onto the same grid point a legal saturating value occupies, so it
+/// cannot be committed injectively.
+const Q16_MAX_FINITE_MAGNITUDE: f32 = 1.4073748e14;
+
+/// Why a weight graph cannot be committed soundly (NAT2-B-003).
+#[derive(Debug, Clone, PartialEq)]
+pub enum CommitError {
+    /// A node feature or edge weight was non-finite (`NaN`/`±inf`), which
+    /// `Q16::from_f32` collapses to raw `0` — colliding with a genuine zero weight.
+    NonFiniteWeight,
+    /// A node feature or edge weight was outside the representable Q16 grid, so it
+    /// saturates to `±i64::MAX` and collides with other saturating magnitudes.
+    OutOfGridWeight(f32),
+}
+
+impl std::fmt::Display for CommitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CommitError::NonFiniteWeight => write!(f, "commit: non-finite weight"),
+            CommitError::OutOfGridWeight(w) => {
+                write!(
+                    f,
+                    "commit: weight {w} is outside the representable Q16 grid"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for CommitError {}
+
+fn check_weight(w: f32) -> Result<(), CommitError> {
+    if !w.is_finite() {
+        return Err(CommitError::NonFiniteWeight);
+    }
+    if w.abs() > Q16_MAX_FINITE_MAGNITUDE {
+        return Err(CommitError::OutOfGridWeight(w));
+    }
+    Ok(())
+}
+
+/// Validate that every feature and edge weight in `g` lies on the representable,
+/// injective part of the Q16 grid (NAT2-B-003). `canonical_digest` quantizes every
+/// float through `Q16::from_f32`, which maps `NaN`, `±inf` and `±0.0` onto raw `0`
+/// and saturates any `|w| ≳ 1.4e14` to `±i64::MAX` — so a non-finite or
+/// out-of-grid model commits to the *same* digest as a materially different legal
+/// one. Any committed path must call this first and fail closed on `Err`, instead
+/// of mapping bad inputs onto a grid point a legal value also occupies. Honest,
+/// finite, in-range weights pass and their digest is unchanged, so the frozen
+/// consensus goldens are unaffected.
+pub fn validate_commit_domain(g: &WeightGraph) -> Result<(), CommitError> {
+    for node in &g.nodes {
+        for &f in &node.feats {
+            check_weight(f)?;
+        }
+    }
+    for e in &g.edges {
+        check_weight(e.weight)?;
+    }
+    Ok(())
+}
+
+/// The fail-closed commitment entry point (NAT2-B-003): validate the weight domain,
+/// then compute the canonical digest. This is the constructor a sound on-chain
+/// weight commitment must use — it rejects the non-finite / saturating inputs that
+/// [`canonical_digest`] would otherwise silently collide, while returning the exact
+/// same digest as [`canonical_digest`] for every honest finite model.
+pub fn commit_checked(g: &WeightGraph) -> Result<String, CommitError> {
+    validate_commit_domain(g)?;
+    Ok(canonical_digest(g))
+}
+
 /// The permutation-invariant, tamper-detecting, Q16-exact weight commitment.
 pub fn canonical_digest(g: &WeightGraph) -> String {
     let n = g.nodes.len();
@@ -256,6 +330,42 @@ mod tests {
             canonical_digest(&gb),
             "WITNESS: within-row permutation is invisible to the commitment"
         );
+    }
+
+    /// NAT2-B-003 tripwire + witness. `canonical_digest` quantizes through
+    /// `Q16::from_f32`, which maps `NaN`/`±inf` and out-of-grid magnitudes onto grid
+    /// points a legal weight also occupies — so materially different models collide.
+    /// The witness asserts the CURRENT unchecked collision (a `NaN` edge and a `0`
+    /// edge produce the same digest); the fix is the fail-closed `commit_checked`,
+    /// which rejects the non-finite / saturating inputs while leaving every honest
+    /// digest — and therefore the frozen goldens — unchanged.
+    #[test]
+    fn commit_checked_rejects_non_finite_and_out_of_grid_nat2_b_003() {
+        let g = lower_nat(&nat_checkpoint(11));
+        // Honest finite model: the checked path equals the unchecked digest.
+        assert_eq!(commit_checked(&g).unwrap(), canonical_digest(&g));
+
+        // WITNESS: a NaN weight collapses to raw 0, colliding with a zeroed sibling.
+        let mut nan_g = g.clone();
+        nan_g.edges[0].weight = f32::NAN;
+        let mut zero_g = g.clone();
+        zero_g.edges[0].weight = 0.0;
+        assert_eq!(
+            canonical_digest(&nan_g),
+            canonical_digest(&zero_g),
+            "WITNESS: NaN and 0 collide in the unchecked digest"
+        );
+
+        // The fail-closed path rejects the non-finite weight instead of committing it.
+        assert_eq!(commit_checked(&nan_g), Err(CommitError::NonFiniteWeight));
+
+        // And rejects a saturating out-of-grid magnitude (1e30 → i64::MAX).
+        let mut big_g = g.clone();
+        big_g.edges[0].weight = 1e30;
+        assert!(matches!(
+            commit_checked(&big_g),
+            Err(CommitError::OutOfGridWeight(_))
+        ));
     }
 
     #[test]

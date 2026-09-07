@@ -167,6 +167,36 @@ mod tests {
         }
     }
 
+    /// NAT2-B-008 WITNESS (disposition: HELD / OWNER). `digest_of` is a bare
+    /// SHA-256 over the raw Q16 output vector — NO domain separator and NO binding
+    /// to `seed`, `trim`, `bucket_count`, `dim`, or the participant set — so the
+    /// aggregate anchor cannot identify which round it belongs to and is replayable
+    /// across rounds. In particular the empty aggregate commits `e3b0c442…`
+    /// (SHA-256 of nothing), identical for every empty round.
+    ///
+    /// This test asserts the CURRENT (unbound) behavior as a canary. The digest is
+    /// the on-chain challenge anchor AND lives in the shared `citrate-fed-types`
+    /// kernel with a frozen golden (`frozen_aggregate_digest` below), so binding it
+    /// (`H(b"nat-agg-v1" || dim || trim || bucket_count || seed || participants || Σ
+    /// raw)`) is a consensus-canonicalization change that must be made in the kernel
+    /// and re-frozen under owner review, coordinated with the on-chain verifier —
+    /// not landed from this repo. When that lands, invert this test.
+    #[test]
+    fn aggregate_digest_is_unbound_across_rounds_nat2_b_008_witness() {
+        // Empty aggregate = SHA-256 of nothing, identical for every empty round.
+        assert_eq!(
+            digest_of(&[]),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        );
+        // Two aggregations over the SAME output vector collide regardless of the
+        // round parameters — the anchor carries no round identity.
+        let v: Vec<Q16> = [1.0f32, -2.0, 3.5]
+            .iter()
+            .map(|&x| Q16::from_f32(x))
+            .collect();
+        assert_eq!(digest_of(&v), digest_of(&v));
+    }
+
     // MIGRATION REGRESSION GUARD — the re-exported kernel aggregation must reproduce the
     // exact pre-migration golden bytes (same inputs as the original frozen test and as
     // `citrate-fed-types::aggregate::frozen_aggregate_digest_matches_nat`). If this drifts,

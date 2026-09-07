@@ -67,17 +67,25 @@ impl RunConfig {
     /// that run the same model on the same data with the same seed and
     /// hyperparameters get the same config hash.
     pub fn config_hash(&self) -> String {
-        // Canonical encoding: a BTreeMap iterates in sorted key order, so the
-        // hyperparam serialization is independent of insertion order.
-        let mut s = format!(
-            "rung={};seed={};data_cfg={};data_manifest={};hp=[",
-            self.rung, self.seed, self.data_config_hash, self.data_manifest_hash,
-        );
+        // Canonical, length-prefixed encoding (NAT2-B-007). A BTreeMap iterates in
+        // sorted key order, so the hyperparam serialization is independent of
+        // insertion order. Every field is length-prefixed rather than delimiter-
+        // joined, so a hyperparameter value that legitimately contains `;` or `=`
+        // (a schedule spec, a list, a path) can no longer alias a different logical
+        // run onto the same identity — the stated property "same config hash ⇒ same
+        // logical run" now actually holds.
+        let mut h = Sha256::new();
+        h.update(b"nat-run-config-v1");
+        put_field(&mut h, self.rung.as_bytes());
+        h.update(self.seed.to_le_bytes());
+        put_field(&mut h, self.data_config_hash.as_bytes());
+        put_field(&mut h, self.data_manifest_hash.as_bytes());
+        h.update((self.hyperparams.len() as u64).to_le_bytes());
         for (k, v) in &self.hyperparams {
-            s.push_str(&format!("{k}={v};"));
+            put_field(&mut h, k.as_bytes());
+            put_field(&mut h, v.as_bytes());
         }
-        s.push(']');
-        hex(&Sha256::digest(s.as_bytes()))
+        hex(&h.finalize())
     }
 
     /// The exact command to rerun this configuration. Part of the floor — a
@@ -120,6 +128,13 @@ impl ReproRecord {
         let bytes = serde_json::to_vec(self).expect("repro record always serializes");
         hex(&Sha256::digest(&bytes))
     }
+}
+
+/// Length-prefix a field (u64 LE length + bytes) into a running hash, so the
+/// config encoding has no delimiter ambiguity (NAT2-B-007).
+fn put_field(h: &mut Sha256, bytes: &[u8]) {
+    h.update((bytes.len() as u64).to_le_bytes());
+    h.update(bytes);
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -171,6 +186,38 @@ mod tests {
         let mut other = cfg();
         other.seed = 9999;
         assert_ne!(cfg().config_hash(), other.config_hash());
+    }
+
+    /// NAT2-B-007 tripwire. `config_hash` must be injective over `RunConfig` — a
+    /// hyperparameter value containing the old `;`/`=` delimiters must not alias
+    /// onto a different logical run. The old hand-rolled `k=v;` concatenation made
+    /// `{"alpha":"1;beta=2"}` and `{"alpha":"1","beta":"2"}` collide.
+    #[test]
+    fn separator_bearing_hyperparams_do_not_collide() {
+        let mk = |hp: BTreeMap<String, String>| {
+            RunConfig {
+                rung: "L1".into(),
+                seed: 1,
+                data_config_hash: "c".into(),
+                data_manifest_hash: "m".into(),
+                hyperparams: hp,
+            }
+            .config_hash()
+        };
+
+        let mut a = BTreeMap::new();
+        a.insert("alpha".to_string(), "1;beta=2".to_string());
+        let mut b = BTreeMap::new();
+        b.insert("alpha".to_string(), "1".to_string());
+        b.insert("beta".to_string(), "2".to_string());
+        assert_ne!(mk(a), mk(b), "delimiter-bearing values must not alias");
+
+        // A boundary shift in a key/value pair is also distinguished.
+        let mut c = BTreeMap::new();
+        c.insert("ab".to_string(), "cd".to_string());
+        let mut d = BTreeMap::new();
+        d.insert("a".to_string(), "bcd".to_string());
+        assert_ne!(mk(c), mk(d));
     }
 
     #[test]

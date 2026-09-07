@@ -133,6 +133,20 @@ impl Trace {
     }
 }
 
+/// Clamp a prune fraction onto the meaningful `[0, Q16::ONE]` grid. A
+/// `prune_threshold` outside this range is not a valid fraction; clamping keeps
+/// the downstream integer arithmetic total (no overflow/saturation) and makes the
+/// debug and release builds agree. In-range values pass through unchanged.
+fn clamp_fraction(t: Q16) -> Q16 {
+    if t.raw() < Q16::ZERO.raw() {
+        Q16::ZERO
+    } else if t.raw() > Q16::ONE.raw() {
+        Q16::ONE
+    } else {
+        t
+    }
+}
+
 /// The result of the merge's prune+reweight step: a pure function of the inputs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergeDecision {
@@ -159,11 +173,23 @@ pub fn prune_and_reweight(scores: &[(ZoneId, Q16)], prune_threshold: Q16) -> Mer
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
 
     // Keep the top (1 - prune_threshold) fraction, at least one zone.
+    //
+    // `prune_threshold` arrives unvalidated from an untrusted `Trace` in
+    // `verify_decision_faithful` (NAT2-B-020). Clamp it onto the meaningful
+    // fraction grid `[0, 1]` before any arithmetic: an out-of-grid value (e.g.
+    // `Q16::from_raw(i64::MIN)`) otherwise saturates `keep_frac`/`keep_raw` to the
+    // Q16 limit and the ceiling `keep_raw.raw() + Q16::ONE.raw() - 1` overflows —
+    // a debug panic and a release wrap that disagree on the survivor set, exactly
+    // the build-profile fork the saturating-Q16 discipline exists to forbid. For an
+    // honest in-grid threshold the clamp is a no-op, so decision-faithful replay is
+    // unchanged. The ceiling is computed in `i128` so it cannot overflow.
     let n = ranked.len();
-    let keep_frac = Q16::ONE.sub(prune_threshold); // fraction to keep
+    let prune_threshold = clamp_fraction(prune_threshold);
+    let keep_frac = Q16::ONE.sub(prune_threshold); // fraction to keep, in [0, 1]
     let keep_raw = Q16::from_raw(n as i64 * Q16::ONE.raw()).mul(keep_frac); // n * keep_frac
-                                                                            // ceil(n * keep_frac), clamped to [1, n].
-    let mut keep = ((keep_raw.raw() + Q16::ONE.raw() - 1) / Q16::ONE.raw()) as usize;
+                                                                            // ceil(n * keep_frac) in i128 (cannot overflow), clamped to [1, n].
+    let mut keep =
+        ((keep_raw.raw() as i128 + Q16::ONE.raw() as i128 - 1) / Q16::ONE.raw() as i128) as usize;
     keep = keep.clamp(1, n);
 
     let survivors_ranked: Vec<(ZoneId, Q16)> = ranked.into_iter().take(keep).collect();
@@ -278,6 +304,59 @@ mod tests {
         let scores = vec![(ZoneId::PF, q(0.5)), (ZoneId::HP, q(0.4))];
         let d = prune_and_reweight(&scores, q(0.99));
         assert_eq!(d.survivors.len(), 1);
+    }
+
+    /// NAT2-B-020 tripwire. `prune_and_reweight` runs on a `prune_threshold` that
+    /// `verify_decision_faithful` passes straight from an untrusted `Trace`. It
+    /// must be TOTAL over the whole `Q16` domain and return the SAME survivor set
+    /// in debug and release. The old body reached through `Q16` to raw `i64` for
+    /// the ceiling and, with `prune_threshold = Q16::from_raw(i64::MIN)`, saturated
+    /// `keep_raw` to the Q16 limit and overflowed `keep_raw.raw() + ONE - 1` —
+    /// panicking in debug ("attempt to add with overflow") and wrapping in release
+    /// to a different survivor set (the fork the saturating-Q16 discipline forbids).
+    /// The fix clamps the threshold onto `[0, 1]` and computes the ceiling in i128.
+    #[test]
+    fn prune_is_total_over_untrusted_threshold_nat2_b_020() {
+        let scores = vec![
+            (ZoneId::HP, q(0.9)),
+            (ZoneId::PF, q(0.5)),
+            (ZoneId::SM, q(0.2)),
+        ];
+        // Adversarial out-of-grid thresholds must neither panic nor wrap.
+        for bad in [
+            Q16::from_raw(i64::MIN),
+            Q16::from_raw(i64::MAX),
+            Q16::from_raw(-1),
+            Q16::from_f32(-5.0),
+            Q16::from_f32(5.0),
+        ] {
+            let d = prune_and_reweight(&scores, bad);
+            assert!(
+                !d.survivors.is_empty() && d.survivors.len() <= scores.len(),
+                "threshold {:?} produced an out-of-range survivor set",
+                bad.raw()
+            );
+        }
+        // A negative threshold clamps to 0 (keep all); a >1 threshold clamps to 1
+        // (keep exactly one). Both agree in debug and release.
+        assert_eq!(
+            prune_and_reweight(&scores, Q16::from_f32(-1.0))
+                .survivors
+                .len(),
+            3,
+        );
+        assert_eq!(
+            prune_and_reweight(&scores, Q16::from_f32(2.0))
+                .survivors
+                .len(),
+            1,
+        );
+        // In-grid thresholds are unaffected by the clamp (decision-faithful replay
+        // is unchanged): keep ceil(3 * 0.5) = 2.
+        assert_eq!(
+            prune_and_reweight(&scores, q(0.5)).survivors,
+            vec![ZoneId::HP, ZoneId::PF],
+        );
     }
 
     /// NAT2-B-001 RED-witness (disposition: HELD/OWNER — the real fix is
