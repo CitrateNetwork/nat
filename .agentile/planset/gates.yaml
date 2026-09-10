@@ -1,0 +1,204 @@
+# Machine-readable gate definitions + exit criteria (Research Method §3).
+# CI reads this to check whether a gate's acceptance is green before a merge to
+# the `main` of a higher rung. Status: pending | partial | met.
+version: 1
+program: RFC-CIT-NAT-0001
+
+gates:
+  - id: gate1
+    name: Theory locked
+    status: partial
+    exit_criteria:
+      - id: g1-planset
+        desc: PLANSET refined into the repo (00–09)
+        met: true
+        evidence: PLANSET/
+      - id: g1-formal
+        desc: TLA+ modules complete and TLC-green
+        met: true
+        note: >-
+          TLC-green 2026-06-27 (scripts/run-tlc.sh): MergeDeterminism (31 states),
+          AsyncGather (40), McpHarness (10), GradientAggregation (625),
+          GradientAggregationAdversarial (905), UnifiedSettlement (8),
+          WeightCommitment (361), LoraRegistration (961) — no errors.
+          The last five added by the Federated Meta-Learning program: WS-1 verifiable
+          gradient aggregation (determinism + ByzantineCannotFlipUnderHonestDominance +
+          WindowCloses liveness), the WS-0 UNIFY-S1 settlement-conservation proof, the
+          WS-2 Layer B WeightCommitment soundness + tamper-detection proof, and the WS-3
+          LoraRegistration soundness proof (RegistrationSound + OnlyVerifiedRegisters +
+          TamperRejected).
+          Function constants overridden via `<- ScoreFcn`/`WeightFcn` (TLC cfg can't
+          hold a function literal).
+        evidence: formal/ ; scripts/run-tlc.sh
+      - id: g1-features
+        desc: Gherkin acceptance set written, organized by gate
+        met: true
+        evidence: features/
+      - id: g1-hypotheses
+        desc: Hypothesis ledger + seed ADRs recorded
+        met: true
+        evidence: .agentile/planset/hypotheses.md, .agentile/planset/decisions/
+      - id: g1-counsel
+        desc: Counsel sign-off on claim-shaped statements (C-1..C-5)
+        met: false
+        note: open — legal/IP + BD review
+    reviewers: [a legal/IP reviewer, an IP/BD reviewer, ML reviewer TBD]
+
+  - id: gate2
+    name: Reference forward pass
+    rung: L0
+    status: met
+    exit_criteria:
+      - id: g2-forward
+        desc: L0 forward pass green against gate2_forward_pass.feature
+        met: true
+        evidence: crates/nat-core/tests/gate2_forward_pass.rs
+      - id: g2-gather
+        desc: Async gather green against gate2_async_gather.feature
+        met: true
+        evidence: crates/nat-core/tests/gate2_async_gather.rs
+      - id: g2-mcp
+        desc: MCP harness green against gate2_mcp_harness.feature
+        met: true
+        evidence: crates/nat-core/tests/gate2_mcp_harness.rs
+      - id: g2-trace
+        desc: Provenance trace complete, hashable, decision-faithful
+        met: true
+        evidence: nat-provenance::verify_decision_faithful + gate2_forward_pass.rs
+      - id: g2-suite
+        desc: cargo test green (workspace), clippy clean
+        met: true
+        evidence: 49 tests passing
+
+  - id: gate3
+    name: Trainable and portable
+    rung: L1
+    status: partial
+    exit_criteria:
+      - id: g3-train
+        desc: L1 model trains on the Spark (Burn/Candle cores)
+        met: true
+        note: >-
+          NAT-S2 WP-4 — nat_candle::train_loop::NatTrainModel trains end-to-end
+          (embedding→router→zones→merge→readout) on the GB10 (candle-cuda),
+          held-out loss drops, seeded-reproducible, emits StepContribution.
+          Caveat: synthetic task; real-corpus nat-data is the next data thread.
+        evidence: crates/nat-candle/src/train_loop.rs
+      - id: g3-gguf
+        desc: GGUF round-trip; Ollama-class load (FlattenedDense export)
+        met: false
+        note: >-
+          GGUF ROUND-TRIP done (2026-06-22): nat_candle::gguf + AutoregLm::export_gguf
+          write all weights as lossless F32 GGUF with NAT metadata; candle's GGUF
+          reader reads them back, values exact (gguf_export_round_trips). The
+          Ollama-class *execution* half is NOT done: the zone-partitioned NAT graph
+          is not a llama.cpp-recognized architecture, so running it in stock Ollama
+          needs a runtime arch mapping — a separate effort.
+        evidence: crates/nat-candle/src/gguf.rs ; example export_gguf
+      - id: g3-routing
+        desc: routing-differentiation metric beats baseline (H-02)
+        met: true
+        note: >-
+          NAT-S2 WP-3 — trained LearnedRouter separation 11.70 vs L0 baseline
+          4.25 on nat_eval's battery (same metric). Held-out (extended battery, train/test split): trained 3.10 vs L0 2.63 —
+          it generalizes (nat-eval h02_heldout). Full-scale batteries remain the L2 read.
+        evidence: crates/nat-eval/tests/h02_trained_router.rs
+      - id: g3-h01
+        desc: "H-01 ablation vs dense baseline of equal params (ADR-0005). BLOCKER."
+        met: true
+        note: >-
+          DECIDED on real data (DATA-S1 WP-D6, 2026-06-22): real NatTrainModel vs an
+          equal-param dense transformer (20718≈20701), both mini-batch-trained on the
+          1.12M-token PD corpus (next-byte LM), capability on a HELD-OUT split,
+          5 seeds, on GPU. **H-01 HOLDS, 5/5 seeds**: NAT held-out loss 2.88–2.91 <
+          dense 2.97–2.99 — partitioning beats the dense baseline per parameter on
+          real text. (The earlier WP-5 synthetic read was a marginal 3/5; real data
+          is decisive.) Caveat: small byte-LM 3-zone scale (~20K params); L2 scale
+          remains future. Honest posture: if a larger run refutes it, change course.
+          RE-CONFIRMED 2026-06-22 on corpus-v3 (1.91M tokens incl. code + SICP, a more
+          diverse distribution — losses rose ~2.9→~3.1 accordingly): still HOLDS 5/5
+          (mean cap/param nat 1.575e-5 > dense 1.537e-5; NAT loss 3.058–3.074 < dense
+          3.138–3.148) — the NAT-over-dense gap reproduces, not a prose-only artifact.
+          RE-CONFIRMED AT SCALE on the WP-D7 architecture (2026-06-23): per-position
+          autoregressive AutoregLm (5-zone) vs param-matched per-position dense
+          (AutoregDenseLm), BPE-4096, on GPU (candle-cuda verified), 5 seeds, held-out
+          bits/byte. Size ladder 250K/1M/2M params: HOLDS 5/5 at every rung and the
+          NAT-over-dense gap WIDENS with scale (0.024 → 0.106 → 0.141 bits/byte) —
+          partitioning's per-param edge grows. Honest scope: scale-UP toward L2, not L2;
+          ≤2M params on ~788K BPE tokens (data-limited), 3 points not a 10B extrapolation.
+          True L2 (~10B, committed compute) = g5-l2, owner-gated; corpus volume is the
+          next lever.
+          CONFIRMED FURTHER (2026-06-25): corpus-v4 (30.99M tokens, 16× v3), per-position
+          BPE-4096 ladder pushed to 4M + 8M params — HOLDS 5/5 at BOTH (after a warmup+clip
+          fix resolved one diverged 8M seed, 3.314→1.989 b/byte); within-recipe gap widens
+          0.188 → 0.251. The half-billion (~500M) scale read is the next milestone — see
+          gate3b + sprint SCALE-S1.
+        evidence: >-
+          crates/nat-ablation/src/real.rs (run_real_corpus_ablation; byte-LM L1);
+          crates/nat-candle/examples/h01_autoreg_bpe.rs + AutoregDenseLm (WP-D7 at scale)
+
+  - id: gate3b
+    name: Scale validation — half a billion params
+    rung: L1.5
+    status: pending
+    # The bet holds and widens at ≤8M params on 31M tokens (g3-h01). gate3b is the
+    # honest scale-up: does it survive ~500M params on billions of license-clean tokens?
+    # The binding constraint is corpus volume, not the architecture. Program: sprint
+    # SCALE-S1. NOT a claim — a named, falsifiable milestone between L1 and L2 (g5-l2).
+    exit_criteria:
+      - id: g3b-checkpoint
+        desc: AutoregLm checkpoint/resume — a multi-day run survives a crash and resumes
+        met: false
+        note: WP-S1. NatTrainModel has save/load; the per-position arch we're scaling does not.
+      - id: g3b-volume
+        desc: corpus volume reaches billions of license-clean tokens (fail-closed gate intact)
+        met: false
+        note: WP-S4 scoping → WP-S5..S9. ~500M params wants 2.5–5B tokens; corpus-v4 is 31M.
+      - id: g3b-ladder
+        desc: H-01 holds (or is honestly refuted) at the 500M rung, param-matched vs dense, held-out
+        met: false
+        note: WP-S10..S12. Sampled seeds at the top to bound compute; gap reported as-is.
+      - id: g3b-eval
+        desc: a capability read beyond bits/byte (domain perplexity + small downstream tasks)
+        met: false
+        note: WP-S11. bits/byte alone is thin at 500M.
+
+  - id: gate4
+    name: Federated proof
+    rung: L3
+    status: pending
+    # Core scaffolded in nat-federated (sprint NAT-S3). The `met` flags stay false
+    # until the real multi-node + on-chain + compute-pool run lands (WP-F3..F6); the
+    # `scaffold` notes record what is already proven in tests.
+    exit_criteria:
+      - id: g4-gather
+        desc: multi-node async signed gather; signatures verify before composition
+        met: false
+        scaffold: nat-federated::gather_and_aggregate — verify-before-compose; forged/tampered/unknown-node all fail closed (tested)
+      - id: g4-tolerance
+        desc: federated result matches centralized within tolerance (H-05)
+        met: false
+        scaffold: nat-federated::within_tolerance — H-05b harness on the Q16 grid (tested); needs the real run
+      - id: g4-onchain
+        desc: on-chain trace-hash commit + auditor replay reproduces output hash
+        met: false
+        scaffold: nat-federated::ChainCommit seam + order-independent merge_trace_hashes (tested); impl gated on citrate-chain
+      - id: g4-settlement
+        desc: contribution settles via compute-pool (compute × quality → reward weight)
+        met: false
+        scaffold: nat-federated::Settlement seam + finalize_round (commit-then-settle, tested); impl gated on citrate-compute-pool
+        evidence_target: docs/SETTLEMENT_SEAM.md
+
+  - id: gate5
+    name: Productize
+    status: pending
+    exit_criteria:
+      - id: g5-console
+        desc: training console ships from the visual brief
+        met: false
+      - id: g5-patent
+        desc: docs patent-filed (C-1..C-5)
+        met: false
+      - id: g5-l2
+        desc: L2 (~10B) run scheduled with committed compute
+        met: false
