@@ -1,108 +1,108 @@
-# nat — Citrate Neuroarchitectural Transformer
+# nat
 
-**RFC-CIT-NAT-0001** · Draft v0.1 · Owner: Larry Klosowski (@saulbuilds) · Entity: Citrate Inc. / Citrate Network
+> Citrate Neuroarchitectural Transformer — a zone-partitioned, GGUF/ONNX-compatible transformer that emits an on-chain-verifiable provenance trace and trains in a federated cycle on Citrate.
 
-A zone-partitioned transformer that stays GGUF/ONNX-compatible, emits an
-on-chain-verifiable **provenance trace** of its own reasoning, and trains in a
-federated cycle on Citrate. The hidden representation is partitioned into six
-named **zones**; each zone runs its own core (attention or state-space),
-communicates over a **fixed topology** modulated per-input by a learned router,
-and the outputs are combined by an **attention-scored, noise-pruned merge**.
-Every forward pass emits a structured, hashable trace of which zones fired and
-why — that trace is the wedge against model opacity and the basis for on-chain
-auditability.
+## What it is
 
-This is a research bet, held to honest posture. The brain analogy is a design
-heuristic. The load-bearing question is **H-01**: does zone partitioning cost
-capability per parameter versus a dense baseline of equal size? The scale ladder
-exists to answer it cheaply (L0/L1 on a Spark) before the expensive L2 run.
+nat (RFC-CIT-NAT-0001) is a research transformer whose hidden representation is split into six named zones — Sensorimotor, Cerebellar, Hippocampal, Prefrontal, Codec, and an MCP harness — each running its own attention or state-space core over a fixed, learned-router-modulated topology, combined by an attention-scored noise-pruned merge. Every forward pass emits a structured, hashable trace of which zones fired and why, and all merge/reward math runs on Q16.16 fixed-point (never f32) so results are bit-reproducible across nodes.
 
-## The six zones
+It is an explicit research bet: the load-bearing question **H-01** is whether zone partitioning costs capability per parameter versus an equal-size dense baseline, tested cheaply up a scale ladder before an expensive ~10B run. Per training step nat emits a metered contribution that [citrate-compute-pool](https://github.com/CitrateNetwork/citrate-compute-pool) turns into a participant payout. This is a **public** repo (still BUSL-licensed — see below). Concept overview: https://docs.citrate.ai/research.
 
-| Zone | Role | Core |
-|------|------|------|
-| `SM` Sensorimotor | ingest + temporally bind multimodal input | SSM |
-| `CB` Cerebellar | timing, motor sequencing, learned reflex | SSM |
-| `HP` Hippocampal | memory consolidation, novelty/salience | attention |
-| `PF` Prefrontal | reasoning, planning, language (deepest) | attention |
-| `CX` Codec | reasoning → verifiable executable logic | attention |
-| `MX` MCP Harness | validate/sequence/route tool use | **non-learned** state machine |
+## Prerequisites
 
-Five learned zones plus one non-learned executive harness. The harness is where
-determinism and the safety story live (no side effect before the action gate).
+nat is a pure Rust / [Candle](https://github.com/huggingface/candle) project — **no Python**. The default build is CPU-only; the GPU path is opt-in.
 
-## Repo layout
+```bash
+# Rust 1.96.0 (pinned by rust-toolchain.toml — rustup auto-installs it)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-```
-PLANSET/            refined design docs (00_OVERVIEW .. 09), numbered convention
-.agentile/planset/  the Agentile method: gates.yaml, hypotheses.md, ADRs, case studies
-formal/             TLA+ modules + .cfg (MergeDeterminism, AsyncGather, McpHarness)
-features/           Gherkin acceptance criteria, organized by gate
-crates/             the Rust reference implementation (workspace)
-docs/               settlement seam, design brief pointers
-AUDIT_TIER.md       Tier-1 classification + obligations
+# GPU path only (optional): NVIDIA driver + CUDA 12.8 TOOLKIT SPECIFICALLY (not 13 —
+# candle 0.8's cudarc hard-rejects newer toolkits). Validated on DGX Spark GB10 (aarch64).
+sudo apt-get install -y cuda-toolkit-12-8      # installs to /usr/local/cuda-12.8
+
+# For scripts/ci-local.sh: Docker.
 ```
 
-### Crates
+Building fetches a private git dependency (`citrate-fed-types`); `.cargo/config.toml` sets `git-fetch-with-cli = true` so system git (and your SSH access) is used.
 
-- `nat-types` — shared primitives (`ZoneId`, `CoreType`, `Status`, `Q16` fixed-point). No deps.
-- `nat-provenance` — the trace: schema, deterministic hash, decision-faithful replay.
-- `nat-mcp` — the non-learned executive harness state machine.
-- `nat-sidecar` — the `.nat.json` zone-graph that wraps a GGUF/ONNX tensor container.
-- `nat-core` — zones, router, async gather, deterministic merge, the forward pass.
-- `nat-data` — the data pipeline (INGEST→…→MANIFEST): quality scoring, zone tagging,
-  dedup, deterministic shards. Produces the `data_quality` score the reward seam uses.
-- `nat-candle` — Candle-backed zone cores (CPU, GPU-ready) behind `ZoneCore`; the
-  L1 training stack (ADR-0010). Kept separate so the L0 build stays Candle-free.
-- `nat-ablation` — the H-01 ablation harness: zone-partitioned vs equal-param
-  dense baseline under the ADR-0005 protocol. The bet-decider, GPU-free now.
-- `nat-train` / `nat-eval` — training loop and eval harness (L0 stubs, wired at L1).
+## Build from source
 
-## Gates
+```bash
+git clone https://github.com/CitrateNetwork/nat.git
+cd nat
 
-NAT follows the five-gate pattern. The current target is **Gate 1 + Gate 2**.
-
-1. **Gate 1 — Theory locked.** PLANSET, formal scaffold, hypotheses, ADRs signed.
-2. **Gate 2 — Reference forward pass.** L0 runs end-to-end; the provenance trace
-   validates against `features/gate2_*.feature`. **← first build target.**
-3. **Gate 3 — Trainable and portable.** L1 trains on the Spark; GGUF round-trip.
-4. **Gate 4 — Federated proof.** Multi-node signed gather; on-chain provenance verifies.
-5. **Gate 5 — Productize.** Console ships; docs patent-filed; L2 scheduled.
-
-Machine-readable exit criteria live in `.agentile/planset/gates.yaml`.
-
-## Economic layer
-
-NAT does **not** reinvent reward settlement. It emits a metered-compute receipt,
-a data-quality score, and a provenance hash that `citrate-compute-pool` (which
-already ships a compute marketplace, tokenomics simulation, and reward
-settlement) turns into participant rewards. The interface is specified in
-`docs/SETTLEMENT_SEAM.md`. Participant economic advantage is a function of
-**compute contributed × data quantity/quality submitted**, settled by
-compute-pool, scored by NAT.
-
-## Build
-
-```sh
-cargo build --workspace
-cargo test  --workspace      # Gate-2 acceptance tests mirror features/gate2_*.feature
+cargo build --workspace          # CPU, no GPU required
+cargo test  --workspace          # runs fully on CPU
 cargo clippy --workspace --all-targets
 ```
 
-## Status
+The workspace has 15 crates under `crates/`. Release profile is `lto = true`, `codegen-units = 1`. Model artifacts and corpora are git-ignored (`*.safetensors`, `*.gguf`, `/corpus/`).
 
-**Gate 2 green** (L0 forward pass + provenance trace). **Sprint 1 landed**
-(GPU-free): Candle training stack (`nat-candle`, ADR-0010), data pipeline +
-quality scoring (`nat-data`), eval/routing harness (`nat-eval`), reproducibility
-floor (`nat-train`), and the **H-01 ablation harness** (`nat-ablation`). 10
-crates, 87 tests, clippy clean. Tier-1 (`AUDIT_TIER.md`).
+Local CI (org GitHub Actions not yet running):
 
-**Picking this up on the DGX? Start at [`docs/DGX_HANDOFF.md`](docs/DGX_HANDOFF.md)** —
-a zero-context onboarding: build, verify, the no-toy-cores guarantee, the GPU
-device swap, and running the real H-01 ablation.
+```bash
+scripts/ci-local.sh              # fmt + clippy + tests + cargo-deny in a rust:1.96 container (needs Docker)
+```
 
-CI is verified locally in Docker (`scripts/ci-local.sh`); GitHub Actions is
-pending an enterprise Actions-budget propagation (config is correct).
-## Open source and access
+## Run locally
 
-This repository is public. Citrate open sources the whole chain and application layer before mainnet, in January 2027; until then most of the core is access-by-request, as a security practice, not secrecy. Approved contributors receive privileged access to every repository except the private repos of clients and employees. Request access at [citrate.ai/contact](https://citrate.ai/contact) or email `hello@citrate.ai`. Full policy: <https://docs.citrate.ai/start/open-source>.
+CPU / illustrative (slow, but no GPU needed):
+
+```bash
+cargo run -p nat-ablation --example ablation        # H-01 ablation on synthetic data
+cargo run -p nat-candle   --example train_corpus    # train a 3-zone byte-LM on the seed corpus
+```
+
+There is **no serving daemon** — "inference" is the forward-pass examples plus GGUF export (intended to run in Ollama once export lands). Build the corpus tool with `cargo build --release -p nat-data --bin nat-corpus`.
+
+The GPU path is wrapped by `scripts/dgx-gpu.sh` (sets the CUDA 12.8 env + `CUDA_COMPUTE_CAP=120`):
+
+```bash
+scripts/dgx-gpu.sh build                             # cargo build -p nat-candle --features cuda
+scripts/dgx-gpu.sh probe                             # asserts a live CUDA GPU
+scripts/dgx-gpu.sh run -p nat-candle --features cuda --example scale_ladder -- <corpus-dir>
+scripts/dgx-gpu.sh run -p nat-ablation --features cuda --example ablation      # the real H-01 bet
+```
+
+Verify a CPU build is healthy: `cargo test --workspace` passes with no GPU.
+
+## Connect it locally
+
+nat is the model + corpus layer of the Citrate stack; it does not settle rewards itself.
+
+1. **Corpus** — build a deterministic, content-addressed corpus with the corpus scripts, then train against it:
+
+   ```bash
+   scripts/build-corpus-v6.sh                        # sized to feed the 64M H-01 rung
+   scripts/dgx-gpu.sh run -p nat-candle --features cuda --example train_corpus
+   ```
+
+   A trained 64M checkpoint ships at `checkpoints-64m/nat-seed2/` for reference.
+
+2. **Settlement (downstream)** — each training step emits `nat_train::StepContribution { compute_metered, data_quality, tokens, provenance_hash }` with `reward_weight = compute_metered × data_quality`. [citrate-compute-pool](https://github.com/CitrateNetwork/citrate-compute-pool) consumes that to compute payout on chain 40204. The interface is specified in `docs/SETTLEMENT_SEAM.md` (ADR-0007).
+
+3. **Federation** — `nat-aggregate` (verifiable DiLoCo gradient aggregation, trimmed-mean in Q16), `nat-federated` (federated distillation), and `nat-weightspace` (weight-space commitment) implement the federated cycle. On-chain provenance verification and multi-node signed gather are Gate 4 (not done yet).
+
+For the full multi-repo bring-up see `LOCAL_STACK.md` in [citrate-docs](https://github.com/CitrateNetwork/citrate-docs).
+
+## Configuration
+
+No `.env` file. Model configs are Rust constructors (`NatTrainConfig::byte_lm_3zone() / byte_lm_medium() / byte_lm_large()`), not YAML. The scale ladder rungs are S/M 3-zone and L 5-zone toward a ~10B L2 target (owner-gated).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NAT_CUDA_HOME` | `/usr/local/cuda-12.8` | override the CUDA toolkit path (GPU builds) |
+| `CUDA_COMPUTE_CAP` | `120` (set by `dgx-gpu.sh`) | compile virtual `compute_120` PTX for GB10 |
+| `WIKI_CHARS` / `CORPUS_OUT` / `BPE_VOCAB` | — | corpus-build script knobs |
+
+`trace.backend` records the real device (`toy-l0` / `candle-cpu` / `candle-cuda`) in every provenance trace.
+
+## Links
+
+- Docs: https://docs.citrate.ai/research
+- Depends on: `citrate-fed-types` (shared Q16 boundary kernel) · Consumed by: [citrate-compute-pool](https://github.com/CitrateNetwork/citrate-compute-pool) (reward settlement)
+- Contributing (DCO): CONTRIBUTING.md · Security: SECURITY.md · License: LICENSE
+
+## License
+
+Source-available (BUSL-1.1) — free for personal/non-commercial use; commercial use requires a Citrate membership. This repo is **public**, but BUSL is **not** an open-source license.
