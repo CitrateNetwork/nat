@@ -1,5 +1,7 @@
 # nat
 
+*Part of the **[Citrate Network](https://citrate.ai)** — own the means of computation. · [Docs](https://docs.citrate.ai) · [Run a node](https://citrate.ai/download) · [Contribute → free membership](https://github.com/CitrateNetwork/.github/blob/main/CONTRIBUTING.md)*
+
 > Citrate Neuroarchitectural Transformer — a zone-partitioned, GGUF/ONNX-compatible transformer that emits an on-chain-verifiable provenance trace and trains in a federated cycle on Citrate.
 
 ## What it is
