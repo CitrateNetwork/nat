@@ -312,15 +312,19 @@ impl AutoregLm {
         let scores = Tensor::cat(&score_refs, 2)?;
         // The same softmax the forward pass uses, including the f32 promotion.
         let weights = candle_nn::ops::softmax(
-            &scores.affine(1.0 / self.cfg.tau, 0.0)?.to_dtype(DType::F32)?,
+            &scores
+                .affine(1.0 / self.cfg.tau, 0.0)?
+                .to_dtype(DType::F32)?,
             D::Minus1,
         )?
         .affine(1.0 - self.cfg.merge_floor, self.cfg.merge_floor / nz as f64)?;
         // Mean over batch and position -> one share per zone.
-        let mean = weights.sum(0)?.sum(0)?.affine(1.0 / (b * seq) as f64, 0.0)?;
+        let mean = weights
+            .sum(0)?
+            .sum(0)?
+            .affine(1.0 / (b * seq) as f64, 0.0)?;
         mean.reshape(nz)?.to_vec1::<f32>()
     }
-
 
     /// Logits at every position: ids `(b, seq)` → `(b, seq, vocab)`.
     pub fn forward(&self, ids: &Tensor) -> Result<Tensor> {
@@ -474,12 +478,18 @@ impl AutoregLm {
     /// delta to the zone that produced it. Renaming a parameter is therefore a
     /// breaking change for the federated path, not an internal detail.
     pub fn named_parameters(&self) -> Result<Vec<(String, Vec<f32>)>> {
-        let data = self.varmap.data().lock().map_err(|_| {
-            candle_core::Error::Msg("varmap mutex poisoned".to_string())
-        })?;
+        let data = self
+            .varmap
+            .data()
+            .lock()
+            .map_err(|_| candle_core::Error::Msg("varmap mutex poisoned".to_string()))?;
         let mut out = Vec::with_capacity(data.len());
         for (name, var) in data.iter() {
-            let flat = var.as_tensor().flatten_all()?.to_dtype(DType::F32)?.to_vec1::<f32>()?;
+            let flat = var
+                .as_tensor()
+                .flatten_all()?
+                .to_dtype(DType::F32)?
+                .to_vec1::<f32>()?;
             out.push((name.clone(), flat));
         }
         // Name-ordered: two callers enumerating the same model must agree, since
@@ -719,12 +729,18 @@ impl AutoregDenseLm {
     /// delta to the zone that produced it. Renaming a parameter is therefore a
     /// breaking change for the federated path, not an internal detail.
     pub fn named_parameters(&self) -> Result<Vec<(String, Vec<f32>)>> {
-        let data = self.varmap.data().lock().map_err(|_| {
-            candle_core::Error::Msg("varmap mutex poisoned".to_string())
-        })?;
+        let data = self
+            .varmap
+            .data()
+            .lock()
+            .map_err(|_| candle_core::Error::Msg("varmap mutex poisoned".to_string()))?;
         let mut out = Vec::with_capacity(data.len());
         for (name, var) in data.iter() {
-            let flat = var.as_tensor().flatten_all()?.to_dtype(DType::F32)?.to_vec1::<f32>()?;
+            let flat = var
+                .as_tensor()
+                .flatten_all()?
+                .to_dtype(DType::F32)?
+                .to_vec1::<f32>()?;
             out.push((name.clone(), flat));
         }
         // Name-ordered: two callers enumerating the same model must agree, since

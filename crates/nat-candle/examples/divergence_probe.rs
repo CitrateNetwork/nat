@@ -41,7 +41,7 @@
 use candle_core::{DType, Tensor};
 use nat_candle::autoreg::{AutoregConfig, AutoregLm};
 use nat_candle::device::{backend_label, device};
-use nat_types::{Q16, ZoneId};
+use nat_types::{ZoneId, Q16};
 use sha2::{Digest, Sha256};
 use std::time::Instant;
 
@@ -65,13 +65,7 @@ mod job {
 
 fn cfg() -> AutoregConfig {
     AutoregConfig {
-        zones: vec![
-            ZoneId::SM,
-            ZoneId::CB,
-            ZoneId::HP,
-            ZoneId::PF,
-            ZoneId::CX,
-        ],
+        zones: vec![ZoneId::SM, ZoneId::CB, ZoneId::HP, ZoneId::PF, ZoneId::CX],
         vocab: job::VOCAB,
         seq_len: job::SEQ,
         d: job::D,
@@ -149,7 +143,10 @@ fn q16_commitment(params: &[(String, Vec<f32>)]) -> String {
 }
 
 fn l2(vals: &[f32]) -> f64 {
-    vals.iter().map(|v| (*v as f64) * (*v as f64)).sum::<f64>().sqrt()
+    vals.iter()
+        .map(|v| (*v as f64) * (*v as f64))
+        .sum::<f64>()
+        .sqrt()
 }
 
 /// Flatten name-sorted parameters and take `PROBE_POINTS` evenly spaced values.
@@ -181,7 +178,10 @@ fn main() {
         _ => "f32",
     };
 
-    eprintln!("nat divergence_probe — backend {}, dtype {dtype_name}", backend_label());
+    eprintln!(
+        "nat divergence_probe — backend {}, dtype {dtype_name}",
+        backend_label()
+    );
     eprintln!("  training the fixed job (run 1 of 2)...");
     let a = train_once(dtype);
     eprintln!("  training the fixed job (run 2 of 2, self-repeat control)...");
@@ -197,12 +197,14 @@ fn main() {
     let per_tensor: Vec<serde_json::Value> = a
         .params
         .iter()
-        .map(|(name, vals)| {
-            serde_json::json!({ "name": name, "n": vals.len(), "l2": l2(vals) })
-        })
+        .map(|(name, vals)| serde_json::json!({ "name": name, "n": vals.len(), "l2": l2(vals) }))
         .collect();
 
-    let global_l2 = l2(&a.params.iter().flat_map(|(_, v)| v.iter().copied()).collect::<Vec<_>>());
+    let global_l2 = l2(&a
+        .params
+        .iter()
+        .flat_map(|(_, v)| v.iter().copied())
+        .collect::<Vec<_>>());
 
     let zones = ["SM", "CB", "HP", "PF", "CX"];
     let zone_shares: serde_json::Map<String, serde_json::Value> = zones
@@ -242,13 +244,19 @@ fn main() {
     });
 
     eprintln!("  params            {n_params}");
-    eprintln!("  loss              {:.4} → {:.4}", a.loss_before, a.loss_after);
+    eprintln!(
+        "  loss              {:.4} → {:.4}",
+        a.loss_before, a.loss_after
+    );
     eprintln!("  throughput        {:.0} tok/s", toks / a.seconds);
-    eprintln!("  self-repeat       {}", if self_repeat_identical {
-        "IDENTICAL (this device reproduces itself)"
-    } else {
-        "*** DIFFERS *** — this device is not run-to-run deterministic"
-    });
+    eprintln!(
+        "  self-repeat       {}",
+        if self_repeat_identical {
+            "IDENTICAL (this device reproduces itself)"
+        } else {
+            "*** DIFFERS *** — this device is not run-to-run deterministic"
+        }
+    );
     eprintln!("  q16 commitment    {commit_a}");
     if !self_repeat_identical {
         eprintln!("  run-2 commitment  {commit_b}");

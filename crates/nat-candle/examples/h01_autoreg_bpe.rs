@@ -169,7 +169,9 @@ fn main() {
     // (identical math, per-epoch model.safetensors+meta.json under <dir>/<arm>-seed<N>)
     // so a host reboot mid-rung loses at most one epoch, not a 40h+ arm. Unset → the
     // original in-memory path, byte-identical behavior to every prior ladder run.
-    let ckpt_root = std::env::var("NAT_CKPT_DIR").ok().map(std::path::PathBuf::from);
+    let ckpt_root = std::env::var("NAT_CKPT_DIR")
+        .ok()
+        .map(std::path::PathBuf::from);
 
     for &seed in &seeds {
         let mut nat = AutoregLm::new_with_dtype(&nat_cfg(d, vocab, seed), dtype).unwrap();
@@ -184,7 +186,9 @@ fn main() {
                     &root.join(format!("nat-seed{seed}")),
                 )
                 .unwrap(),
-            None => nat.train_minibatched(&xtr, EPOCHS, BATCH, LR, seed).unwrap(),
+            None => nat
+                .train_minibatched(&xtr, EPOCHS, BATCH, LR, seed)
+                .unwrap(),
         }
         let nat_loss = nat.loss_on_batched(&xva, BATCH).unwrap();
 

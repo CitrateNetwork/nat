@@ -14,10 +14,22 @@ use nat_types::ZoneId;
 
 fn main() -> anyhow::Result<()> {
     let nat = std::env::args().nth(1).unwrap_or_else(|| ".".into());
-    let d: usize = std::env::args().nth(2).and_then(|s| s.parse().ok()).unwrap_or(64);
-    let steps: usize = std::env::args().nth(3).and_then(|s| s.parse().ok()).unwrap_or(30);
-    let floor: f64 = std::env::args().nth(4).and_then(|s| s.parse().ok()).unwrap_or(0.0);
-    let bf16 = std::env::args().nth(5).map(|s| s == "bf16").unwrap_or(false);
+    let d: usize = std::env::args()
+        .nth(2)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(64);
+    let steps: usize = std::env::args()
+        .nth(3)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+    let floor: f64 = std::env::args()
+        .nth(4)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+    let bf16 = std::env::args()
+        .nth(5)
+        .map(|s| s == "bf16")
+        .unwrap_or(false);
 
     let corpus = std::path::Path::new(&nat).join(
         "corpus/values-spine/corpus-v6/c64a034b203c4b1cb8c74944b934c4c36783a77fd4e56d63b785b475d22433cb",
@@ -42,7 +54,11 @@ fn main() -> anyhow::Result<()> {
     };
     let dt = if bf16 { DType::BF16 } else { DType::F32 };
     let mut m = AutoregLm::new_with_dtype(&cfg, dt)?;
-    println!("d={d} params={} floor={floor} steps={steps} dtype={dt:?} on {}", m.param_count(), m.backend());
+    println!(
+        "d={d} params={} floor={floor} steps={steps} dtype={dt:?} on {}",
+        m.param_count(),
+        m.backend()
+    );
 
     let (ids, _t) = next_byte_windows(&shards, cfg.seq_len, 512, m.device())?;
 
@@ -60,7 +76,11 @@ fn main() -> anyhow::Result<()> {
                 "  {:<6}{}{}",
                 step,
                 cells.join(""),
-                if dead > 0 { format!("   <- {dead} DEAD") } else { String::new() }
+                if dead > 0 {
+                    format!("   <- {dead} DEAD")
+                } else {
+                    String::new()
+                }
             );
         }
         if dead > 0 && step > 0 {

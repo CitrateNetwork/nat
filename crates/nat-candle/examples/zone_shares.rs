@@ -19,7 +19,15 @@ fn main() -> anyhow::Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(nat_candle::autoreg::DEFAULT_MERGE_FLOOR);
     let zones = vec![ZoneId::SM, ZoneId::CB, ZoneId::HP, ZoneId::PF, ZoneId::CX];
-    let cfg = AutoregConfig { zones: zones.clone(), vocab: 16384, seq_len: 128, d: 1183, tau: 1.0, merge_floor: floor, seed: 2026 };
+    let cfg = AutoregConfig {
+        zones: zones.clone(),
+        vocab: 16384,
+        seq_len: 128,
+        d: 1183,
+        tau: 1.0,
+        merge_floor: floor,
+        seed: 2026,
+    };
     println!("merge_floor = {floor}");
     let mut m = AutoregLm::new_with_dtype(&cfg, DType::BF16)?;
     m.load(&ckpt)?;
@@ -29,7 +37,9 @@ fn main() -> anyhow::Result<()> {
     let mut shards = Vec::new();
     for i in 0..8u32 {
         let p = corpus.join(format!("shard_{i:04}.json"));
-        shards.push(serde_json::from_str::<nat_data::manifest::Shard>(&std::fs::read_to_string(p)?)?);
+        shards.push(serde_json::from_str::<nat_data::manifest::Shard>(
+            &std::fs::read_to_string(p)?,
+        )?);
     }
     let (ids, _t) = nat_candle::corpus::next_byte_windows(&shards, cfg.seq_len, 32, m.device())?;
 

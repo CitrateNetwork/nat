@@ -63,7 +63,10 @@ fn load(path: &str) -> anyhow::Result<Probe> {
         dtype: v["dtype"].as_str().unwrap_or("?").to_string(),
         os: v["os"].as_str().unwrap_or("?").to_string(),
         arch: v["arch"].as_str().unwrap_or("?").to_string(),
-        commitment: v["weights"]["q16_commitment"].as_str().unwrap_or("?").to_string(),
+        commitment: v["weights"]["q16_commitment"]
+            .as_str()
+            .unwrap_or("?")
+            .to_string(),
         self_repeat: v["self_repeat_identical"].as_bool().unwrap_or(false),
         loss_after: v["loss"]["after"].as_f64().unwrap_or(f64::NAN),
         global_l2: v["weights"]["global_l2"].as_f64().unwrap_or(f64::NAN),
@@ -104,7 +107,10 @@ fn main() -> anyhow::Result<()> {
     let job0 = &probes[0].job;
     for p in &probes[1..] {
         if &p.job != job0 {
-            println!("\n*** {} ran a DIFFERENT job spec — results are not comparable ***", p.label);
+            println!(
+                "\n*** {} ran a DIFFERENT job spec — results are not comparable ***",
+                p.label
+            );
             println!("    {}", p.job);
             println!("    {job0}");
             return Ok(());
@@ -113,7 +119,11 @@ fn main() -> anyhow::Result<()> {
 
     // Self-repeat is the precondition for everything else: a device that cannot
     // reproduce itself contributes noise to every pairwise number below.
-    let flaky: Vec<&str> = probes.iter().filter(|p| !p.self_repeat).map(|p| p.label.as_str()).collect();
+    let flaky: Vec<&str> = probes
+        .iter()
+        .filter(|p| !p.self_repeat)
+        .map(|p| p.label.as_str())
+        .collect();
     if !flaky.is_empty() {
         println!(
             "\n*** {} failed the self-repeat control. Pairwise deltas involving these\n\
@@ -125,10 +135,18 @@ fn main() -> anyhow::Result<()> {
     let identical = probes.iter().all(|p| p.commitment == probes[0].commitment);
     println!(
         "\n=== q16 commitments === {}",
-        if identical { "ALL IDENTICAL" } else { "differ (expected across backends)" }
+        if identical {
+            "ALL IDENTICAL"
+        } else {
+            "differ (expected across backends)"
+        }
     );
     for p in &probes {
-        println!("  {:<22} {}", p.label, &p.commitment[..16.min(p.commitment.len())]);
+        println!(
+            "  {:<22} {}",
+            p.label,
+            &p.commitment[..16.min(p.commitment.len())]
+        );
     }
 
     println!("\n=== pairwise weight divergence ===");
@@ -160,8 +178,10 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    println!("\n=== zone shares (a dead zone on one machine and not another matters\n\
-             === far more than a float ulp) ===");
+    println!(
+        "\n=== zone shares (a dead zone on one machine and not another matters\n\
+             === far more than a float ulp) ==="
+    );
     let names: Vec<&String> = probes[0].zones.keys().collect();
     print!("  {:<22}", "probe");
     for z in &names {
@@ -178,7 +198,10 @@ fn main() -> anyhow::Result<()> {
 
     println!("\n=== verdict ===");
     println!("  worst honest divergence : {worst:.3e}");
-    println!("  one Q16 grid step       : {Q16_STEP:.3e}  ({:.1}x the divergence)", Q16_STEP / worst.max(1e-30));
+    println!(
+        "  one Q16 grid step       : {Q16_STEP:.3e}  ({:.1}x the divergence)",
+        Q16_STEP / worst.max(1e-30)
+    );
     println!("  global L2 spread        : {:.3e}", {
         let (lo, hi) = probes.iter().fold((f64::MAX, f64::MIN), |(lo, hi), p| {
             (lo.min(p.global_l2), hi.max(p.global_l2))
