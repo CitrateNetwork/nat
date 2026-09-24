@@ -8,7 +8,7 @@
 
 nat (RFC-CIT-NAT-0001) is a research transformer whose hidden representation is split into six named zones — Sensorimotor, Cerebellar, Hippocampal, Prefrontal, Codec, and an MCP harness — each running its own attention or state-space core over a fixed, learned-router-modulated topology, combined by an attention-scored noise-pruned merge. Every forward pass emits a structured, hashable trace of which zones fired and why, and all merge/reward math runs on Q16.16 fixed-point (never f32) so results are bit-reproducible across nodes.
 
-It is an explicit research bet: the load-bearing question **H-01** is whether zone partitioning costs capability per parameter versus an equal-size dense baseline, tested cheaply up a scale ladder before an expensive ~10B run. Per training step nat emits a metered contribution that [citrate-compute-pool](https://github.com/CitrateNetwork/citrate-compute-pool) turns into a participant payout. This is a **public** repo (still BUSL-licensed — see below). Concept overview: https://docs.citrate.ai/research.
+It is an explicit research bet: the load-bearing question **H-01** is whether zone partitioning costs capability per parameter versus an equal-size dense baseline, tested cheaply up a scale ladder before an expensive ~10B run. Per training step nat emits a metered contribution that [citrate-compute-pool](https://github.com/CitrateNetwork/citrate-compute-pool) turns into a participant payout. This is a **public**, Apache-2.0-licensed repo (see License below). Concept overview: https://docs.citrate.ai/research.
 
 ## Prerequisites
 
@@ -107,4 +107,4 @@ No `.env` file. Model configs are Rust constructors (`NatTrainConfig::byte_lm_3z
 
 ## License
 
-Source-available (BUSL-1.1) — free for personal/non-commercial use; commercial use requires a Citrate membership. This repo is **public**, but BUSL is **not** an open-source license.
+Licensed under the Apache License, Version 2.0 (see [`LICENSE`](LICENSE)). This is the open-source infrastructure tier of Citrate's open-core model. The commercial application layer is source-available under BUSL-1.1. Licensor: Citrate Inc.
