@@ -199,7 +199,7 @@ dependencies = [
 [[package]]
 name = "citrate-fed-types"
 version = "0.1.0"
-source = "git+https://github.com/CitrateNetwork/citrate-fed-types.git?rev=dbbfbff29a5053aa8324a866d52215c2f2281c31#dbbfbff29a5053aa8324a866d52215c2f2281c31"
+source = "git+https://github.com/CitrateNetwork/citrate-fed-types.git?rev=7000687c75c83cf40376c84f0062b99634457f57#7000687c75c83cf40376c84f0062b99634457f57"
 dependencies = [
  "serde",
  "sha2",
