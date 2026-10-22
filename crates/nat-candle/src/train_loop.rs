@@ -468,6 +468,34 @@ mod tests {
         assert!(base.bytes().all(|b| b.is_ascii_hexdigit()));
     }
 
+    /// The contribution a training step emits carries a provenance hash built
+    /// from that step's realized loss and the resolved backend, not just from the
+    /// public `(seed, step, tokens)` triple. Checked at the emitting call, with a
+    /// freshly built (untrained) model; no training runs.
+    #[test]
+    fn step_contribution_binds_the_realized_loss_and_backend() {
+        let cfg = NatTrainConfig::small_3zone();
+        let model = NatTrainModel::new(&cfg).unwrap();
+        let a = model.step_contribution(3, 1024, 2.5);
+        let b = model.step_contribution(3, 1024, 2.4);
+        assert_ne!(
+            a.provenance_hash, b.provenance_hash,
+            "same (seed, step, tokens) with a different loss must not share a hash"
+        );
+        assert_eq!(
+            a.provenance_hash,
+            step_provenance_hash(
+                cfg.seed,
+                3,
+                1024,
+                Q16::from_f32(2.5).raw(),
+                crate::device::backend_label(),
+            )
+        );
+        assert_eq!(a.tokens, 1024);
+        assert_eq!(a, model.step_contribution(3, 1024, 2.5), "deterministic");
+    }
+
     #[test]
     fn held_out_loss_drops_end_to_end() {
         // The whole pass (embedding → router → zones → merge → readout) trains:

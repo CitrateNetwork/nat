@@ -633,6 +633,27 @@ mod tests {
         assert_eq!(r2.accepted.len(), 1);
     }
 
+    /// The gather accepts only full-width digests: a lowercase-hex trace hash that
+    /// is one character short or long, or upper-case, is refused before it can
+    /// enter the merged hash.
+    #[test]
+    fn gather_refuses_a_trace_hash_that_is_not_64_lowercase_hex() {
+        let v = roster(&["a"]);
+        let full = th("ta");
+        let short = full[..63].to_string();
+        let long = format!("{full}0");
+        let upper = full.to_uppercase();
+        for bad in [short, long, upper, String::new()] {
+            let c = SignedContribution::create(&signer("a"), contrib(4.0, 0.5, "pa"), "ma", &bad)
+                .expect("local toy signer cannot fail");
+            let r = gather_and_aggregate(std::slice::from_ref(&c), &v);
+            assert!(r.accepted.is_empty(), "{bad:?} must not be accepted");
+            assert_eq!(r.rejected.len(), 1);
+            assert_eq!(r.rejected[0].reason, RejectReason::MalformedTraceHash);
+            assert_eq!(r.total_reward_weight, Q16::ZERO);
+        }
+    }
+
     #[test]
     fn merged_hash_is_order_independent() {
         let v = roster(&["a", "b"]);

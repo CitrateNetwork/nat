@@ -368,6 +368,34 @@ mod tests {
         ));
     }
 
+    /// The checked commitment validates node features as well as edge weights:
+    /// a non-finite or out-of-grid feature is refused, never quantized onto the
+    /// grid point a legal feature already occupies.
+    #[test]
+    fn commit_checked_rejects_a_bad_node_feature() {
+        let g = lower_nat(&nat_checkpoint(11));
+        assert!(!g.nodes.is_empty() && !g.nodes[0].feats.is_empty());
+
+        let mut nan_feat = g.clone();
+        nan_feat.nodes[0].feats[0] = f32::NAN;
+        assert_eq!(commit_checked(&nan_feat), Err(CommitError::NonFiniteWeight));
+
+        let mut inf_feat = g.clone();
+        let last = inf_feat.nodes.len() - 1;
+        inf_feat.nodes[last].feats[0] = f32::NEG_INFINITY;
+        assert_eq!(commit_checked(&inf_feat), Err(CommitError::NonFiniteWeight));
+
+        let mut big_feat = g.clone();
+        big_feat.nodes[0].feats[0] = -1e20;
+        assert!(matches!(
+            commit_checked(&big_feat),
+            Err(CommitError::OutOfGridWeight(_))
+        ));
+
+        // The untouched graph still commits to the unchecked digest.
+        assert_eq!(commit_checked(&g).unwrap(), canonical_digest(&g));
+    }
+
     #[test]
     fn adding_an_edge_changes_the_digest() {
         let g = lower_transformer(&transformer_checkpoint(11, 2, 4));
