@@ -47,8 +47,9 @@ mod tests {
             pg("b", &[1.5, 2.5]),
             pg("c", &[1.25, 2.25]),
         ];
-        let r1 = one_per_bucket(&g, 0);
-        let r2 = one_per_bucket(&g, 0);
+        // Trim 1 of 3: the shared kernel refuses a zero trim budget.
+        let r1 = one_per_bucket(&g, 1);
+        let r2 = one_per_bucket(&g, 1);
         assert_eq!(r1, r2);
         assert_eq!(r1.digest.len(), 64);
     }

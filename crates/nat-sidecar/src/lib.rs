@@ -249,6 +249,31 @@ mod tests {
         );
     }
 
+    /// The parse entry point applies the slice checks: a `.nat.json` whose zones
+    /// alias one slice, or declare a zero-width slice, does not load.
+    #[test]
+    fn from_json_refuses_aliased_and_zero_width_slices() {
+        let mut aliased = Sidecar::default_l0();
+        for z in &mut aliased.zones {
+            z.slice_offset = 0;
+            z.slice_width = 16;
+        }
+        assert!(matches!(
+            Sidecar::from_json(&aliased.to_json()),
+            Err(SidecarError::OverlappingSlices { .. })
+        ));
+
+        let mut zero = Sidecar::default_l0();
+        zero.zones[2].slice_width = 0;
+        assert!(matches!(
+            Sidecar::from_json(&zero.to_json()),
+            Err(SidecarError::ZeroWidthSlice { .. })
+        ));
+
+        let honest = Sidecar::default_l0();
+        assert_eq!(Sidecar::from_json(&honest.to_json()).unwrap(), honest);
+    }
+
     /// NAT2-B-005 tripwire. A sidecar is the untrusted half of a downloaded model.
     /// Zone-slice isolation must be *enforced*, not conventional: a sidecar that
     /// aliases two zones onto overlapping hidden channels used to validate cleanly,
