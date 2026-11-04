@@ -1,3 +1,6 @@
+
+> **Launch tokenomics: TBD before launch.** Supply, allocations, vesting, emissions, staking requirements, fees, and rewards are not finalized. More announcements coming soon. See the [current status and notice about earlier exploratory materials](https://docs.citrate.ai/chain/economics). Feedback: [support@citrate.ai](mailto:support@citrate.ai).
+
 # §7 Federated training by paraconsistent consensus
 
 The third face of NAT's thesis is that declaring structure makes the model *decentralizable*. This
@@ -62,7 +65,7 @@ Per training step (or gathered federated round) NAT produces a signed contributi
 a data-quality score from the pipeline's quality stage, a token count, and the provenance-trace hash —
 and a deterministic **reward weight = compute × data-quality**, computed on the Q16.16 path so two
 nodes and an on-chain verifier agree on it bit for bit. `citrate-compute-pool` converts that weight to
-payout under its tokenomics, and `ContributionAccounting` (Paper VII) records it. The unification
+payout under experimental policy; launch tokenomics TBD, and `ContributionAccounting` (Paper VII) records it. The unification
 routes settlement through the co-op `FederatedSettlement` seam into the `PatronageLedger`, carrying
 the `data_quality` term **separately** (not pre-collapsed into the reward weight) so the patronage
 dividend can apply it as the honesty factor (`nat-federated::seam::SettlementRow`, binding #4;

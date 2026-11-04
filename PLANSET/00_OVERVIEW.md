@@ -1,3 +1,6 @@
+
+> **Launch tokenomics: TBD before launch.** Supply, allocations, vesting, emissions, staking requirements, fees, and rewards are not finalized. More announcements coming soon. See the [current status and notice about earlier exploratory materials](https://docs.citrate.ai/chain/economics). Feedback: [support@citrate.ai](mailto:support@citrate.ai).
+
 # NAT Planset — Overview
 
 **RFC-CIT-NAT-0001** · Draft v0.1 · Owner: Larry Klosowski (@saulbuilds) · Entity: Citrate Inc. / Citrate Network
@@ -47,7 +50,7 @@ realized as `crates/nat-core/tests/gate2_*.rs`). See `07_SPRINTS_AND_WPS.md`.
 
 NAT does not reinvent reward settlement. It emits a metered-compute receipt, a
 data-quality score, and a provenance hash that **`citrate-compute-pool`** settles
-into participant rewards (it already ships a compute marketplace, tokenomics
+into participant rewards (it already ships a compute marketplace and experimental settlement
 simulation, and reward settlement). Participant economic advantage is a function
 of **compute contributed × data quantity/quality submitted**. The interface is
 `../docs/SETTLEMENT_SEAM.md`; the contribution accounting type is
