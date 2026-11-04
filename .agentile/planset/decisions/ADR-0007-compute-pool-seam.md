@@ -1,3 +1,6 @@
+
+> **Current launch status (2026-11-04): tokenomics TBD before launch.** Historical engineering parameters below are not finalized launch terms. More announcements coming soon: https://docs.citrate.ai/chain/economics. Feedback: support@citrate.ai.
+
 # ADR-0007 — Integrate with compute-pool for settlement (do not reinvent)
 
 **Status:** accepted · **Date:** 2026-06-18 · **Remediation:** #1
